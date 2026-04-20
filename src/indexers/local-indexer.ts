@@ -1,7 +1,8 @@
-import { normalizePath, TFile, type App } from "obsidian";
-import picomatch from "picomatch";
+import { normalizePath, type App, type TFile } from "obsidian";
 import type { LocalIndex, SyncBaseline } from "../types/sync-types";
 import type { LocalIndexer } from "../types/interfaces";
+import { isIgnoredPath } from "../utils/path-filter";
+import { runtimeLog } from "../utils/runtime-log";
 
 export class LocalVaultIndexer implements LocalIndexer {
   private app: App;
@@ -31,16 +32,13 @@ export class LocalVaultIndexer implements LocalIndexer {
         continue;
       }
 
-      if (this.isIgnored(file.path, ignorePatterns)) {
+      if (isIgnoredPath(file.path, ignorePatterns)) {
         continue;
       }
 
       // Check file size
       if (file.stat.size > this.maxFileSizeBytes) {
         skippedFiles.push(file.path);
-        console.warn(
-          `Skipping large file: ${file.path} (${(file.stat.size / 1024 / 1024).toFixed(2)}MB exceeds ${(this.maxFileSizeBytes / 1024 / 1024).toFixed(0)}MB limit)`
-        );
         continue;
       }
 
@@ -54,7 +52,9 @@ export class LocalVaultIndexer implements LocalIndexer {
     }
 
     if (skippedFiles.length > 0) {
-      console.warn(`Skipped ${skippedFiles.length} large file(s):`, skippedFiles);
+      runtimeLog.warn(
+        `Skipped ${skippedFiles.length} large file(s) exceeding ${(this.maxFileSizeBytes / 1024 / 1024).toFixed(0)}MB.`
+      );
     }
 
     return index;
@@ -92,41 +92,5 @@ export class LocalVaultIndexer implements LocalIndexer {
     }
 
     return normalized.startsWith(`${rootPath}/`);
-  }
-
-  private isIgnored(path: string, ignorePatterns: string[]): boolean {
-    if (ignorePatterns.length === 0) {
-      return false;
-    }
-
-    const normalized = normalizePath(path);
-
-    // Use picomatch for robust glob pattern matching
-    for (const pattern of ignorePatterns) {
-      const trimmed = pattern.trim();
-      if (!trimmed) {
-        continue;
-      }
-
-      // Handle directory patterns (ending with /)
-      if (trimmed.endsWith("/")) {
-        const dirPattern = normalizePath(trimmed);
-        if (normalized.startsWith(dirPattern) || normalized === dirPattern.slice(0, -1)) {
-          return true;
-        }
-      } else {
-        // Use picomatch for advanced glob matching
-        const isMatch = picomatch(normalizePath(trimmed), {
-          dot: true, // Match dotfiles
-          noglobstar: false, // Enable ** for recursive matching
-        });
-
-        if (isMatch(normalized)) {
-          return true;
-        }
-      }
-    }
-
-    return false;
   }
 }

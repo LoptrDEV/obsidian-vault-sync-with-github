@@ -14,7 +14,7 @@ describe("LocalVaultIndexer", () => {
 
     const index = await indexer.scan("Journal", []);
     expect(Object.keys(index)).toEqual(["Journal/one.md"]);
-    expect(index["Journal/one.md"].hash).toBeDefined();
+    expect(index["Journal/one.md"]?.hash).toBeDefined();
   });
 
   it("applies ignore patterns", async () => {
@@ -37,5 +37,16 @@ describe("LocalVaultIndexer", () => {
 
     const index = await indexer.scan("", ["Journal/*.md"]);
     expect(Object.keys(index)).toEqual(["Journal/two.txt"]);
+  });
+
+  it("supports globstar ignore pattern", async () => {
+    const vault = new FakeVault();
+    await vault.createBinary("Journal/Archive/one.md", toBuffer("one"));
+    await vault.createBinary("Journal/Archive/two.txt", toBuffer("two"));
+    const app = new FakeApp(vault);
+    const indexer = new LocalVaultIndexer(app as any);
+
+    const index = await indexer.scan("", ["Journal/**/*.md"]);
+    expect(Object.keys(index)).toEqual(["Journal/Archive/two.txt"]);
   });
 });
