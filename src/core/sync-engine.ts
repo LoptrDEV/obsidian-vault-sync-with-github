@@ -43,6 +43,10 @@ type PreparedSyncPlan = {
   preview: SyncPreview;
 };
 
+type ExecuteOpsResult = {
+  pendingLocalBaselinePaths: string[];
+};
+
 /**
  * Orchestrates sync execution, preview generation, delete-safety approval, and
  * baseline repair while keeping user-visible state persisted for later review.
@@ -115,7 +119,7 @@ export class DefaultSyncEngine implements SyncEngine {
         total: prepared.finalOps.length,
       });
 
-      await this.executeOps(
+      const executionResult = await this.executeOps(
         prepared.finalOps,
         prepared.conflicts,
         config,
@@ -143,7 +147,8 @@ export class DefaultSyncEngine implements SyncEngine {
         updatedLocal,
         updatedRemote,
         commitInfo.sha,
-        this.remoteIndexer.getLastFetchMeta?.()?.placeholderDirectories ?? []
+        this.remoteIndexer.getLastFetchMeta?.()?.placeholderDirectories ?? [],
+        executionResult.pendingLocalBaselinePaths
       );
 
       await this.stateStore.saveBaseline(baselineSnapshot);
@@ -535,8 +540,9 @@ export class DefaultSyncEngine implements SyncEngine {
     config: SyncConfig,
     _local: LocalIndex,
     _remote: RemoteIndex
-  ): Promise<void> {
+  ): Promise<ExecuteOpsResult> {
     const failures: string[] = [];
+    const pendingLocalBaselinePaths = new Set<string>();
     const renameRemote = ops.filter((op) => op.type === "rename_remote") as Array<{
       type: "rename_remote";
       from: string;
@@ -607,13 +613,21 @@ export class DefaultSyncEngine implements SyncEngine {
 
     if (config.conflictPolicy === "keepBoth") {
       await this.runOp("keepBoth_conflicts", failures, () =>
-        this.applyKeepBothConflicts(conflicts, config)
+        this.applyKeepBothConflicts(conflicts, config).then((paths) => {
+          for (const path of paths) {
+            pendingLocalBaselinePaths.add(path);
+          }
+        })
       );
     }
 
     if (failures.length > 0) {
       throw new Error(`Sync failed with ${failures.length} errors.`);
     }
+
+    return {
+      pendingLocalBaselinePaths: [...pendingLocalBaselinePaths].sort(),
+    };
   }
 
   private async renameLocalFile(fromPath: string, toPath: string): Promise<void> {
@@ -677,7 +691,18 @@ export class DefaultSyncEngine implements SyncEngine {
   ): Promise<void> {
     const headInfo = await this.gitClient.getCommitInfo(config.branch);
     const parentSha = headInfo.sha;
-    const baseTreeSha = parentSha ? await this.gitClient.getCommitTreeSha(parentSha) : undefined;
+
+    if (!parentSha) {
+      await this.bootstrapEmptyRepo(updates, config);
+      return;
+    }
+
+    if (deletes.size > 0) {
+      await this.applyContentsMutations(updates, deletes, config);
+      return;
+    }
+
+    const baseTreeSha = await this.gitClient.getCommitTreeSha(parentSha);
 
     const entries: Array<{ path: string; sha: string | null; mode: string; type: "blob" }> = [];
 
@@ -732,6 +757,109 @@ export class DefaultSyncEngine implements SyncEngine {
     await this.gitClient.updateRef(config.branch, newCommitSha);
   }
 
+  private async bootstrapEmptyRepo(
+    updates: Set<string>,
+    config: SyncConfig
+  ): Promise<void> {
+    const repoSubfolder = this.getRepoSubfolder(config);
+    const sortedUpdates = [...updates].sort((left, right) => left.localeCompare(right));
+
+    for (const [index, path] of sortedUpdates.entries()) {
+      const normalized = normalizePath(path);
+      const abstractFile = this.app.vault.getAbstractFileByPath(normalized);
+      if (!abstractFile || !(abstractFile instanceof TFile)) {
+        runtimeLog.warn(`bootstrapEmptyRepo: file not found for update ${normalized}.`);
+        continue;
+      }
+
+      try {
+        const data = await this.app.vault.readBinary(abstractFile);
+        const contentBase64 = Buffer.from(data).toString("base64");
+        const commitMessage =
+          index === 0
+            ? `sync: initialize repository with ${normalized}`
+            : `sync: add ${normalized}`;
+        await this.gitClient.putFile(
+          this.toRemotePath(normalized, repoSubfolder),
+          contentBase64,
+          commitMessage,
+          undefined,
+          config.branch
+        );
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        runtimeLog.error(`bootstrapEmptyRepo: failed to process update ${normalized}: ${message}`);
+        throw new Error(`Failed to process an update operation: ${message}`);
+      }
+    }
+  }
+
+  private async applyContentsMutations(
+    updates: Set<string>,
+    deletes: Set<string>,
+    config: SyncConfig
+  ): Promise<void> {
+    const repoSubfolder = this.getRepoSubfolder(config);
+    const sortedUpdates = [...updates].sort((left, right) => left.localeCompare(right));
+    const sortedDeletes = [...deletes].sort((left, right) => left.localeCompare(right));
+
+    for (const path of sortedUpdates) {
+      const normalized = normalizePath(path);
+      const abstractFile = this.app.vault.getAbstractFileByPath(normalized);
+      if (!abstractFile || !(abstractFile instanceof TFile)) {
+        runtimeLog.warn(`applyContentsMutations: file not found for update ${normalized}.`);
+        continue;
+      }
+
+      try {
+        const data = await this.app.vault.readBinary(abstractFile);
+        const contentBase64 = Buffer.from(data).toString("base64");
+        const remotePath = this.toRemotePath(normalized, repoSubfolder);
+        let sha: string | undefined;
+        try {
+          const existing = await this.gitClient.getFile(remotePath, config.branch);
+          sha = existing.sha;
+        } catch (error) {
+          if (!this.isNotFoundError(error)) {
+            throw error;
+          }
+        }
+
+        await this.gitClient.putFile(
+          remotePath,
+          contentBase64,
+          `sync: update ${normalized}`,
+          sha,
+          config.branch
+        );
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        runtimeLog.error(`applyContentsMutations: failed to process update ${normalized}: ${message}`);
+        throw new Error(`Failed to process an update operation: ${message}`);
+      }
+    }
+
+    for (const path of sortedDeletes) {
+      const normalized = normalizePath(path);
+      const remotePath = this.toRemotePath(normalized, repoSubfolder);
+      try {
+        const existing = await this.gitClient.getFile(remotePath, config.branch);
+        await this.gitClient.deleteFile(
+          remotePath,
+          `sync: delete ${normalized}`,
+          existing.sha,
+          config.branch
+        );
+      } catch (error) {
+        if (this.isNotFoundError(error)) {
+          runtimeLog.warn(`applyContentsMutations: remote file already missing ${normalized}.`);
+          continue;
+        }
+        throw error;
+      }
+    }
+  }
+
   private async copyLocalFile(sourcePath: string, targetPath: string): Promise<void> {
     const normalized = normalizePath(sourcePath);
     const abstractFile = this.app.vault.getAbstractFileByPath(normalized);
@@ -766,7 +894,12 @@ export class DefaultSyncEngine implements SyncEngine {
     }
   }
 
-  private async applyKeepBothConflicts(conflicts: SyncOp[], config: SyncConfig): Promise<void> {
+  private async applyKeepBothConflicts(
+    conflicts: SyncOp[],
+    config: SyncConfig
+  ): Promise<string[]> {
+    const pendingLocalBaselinePaths: string[] = [];
+
     for (const conflict of conflicts) {
       if (conflict.type !== "conflict") {
         continue;
@@ -781,12 +914,14 @@ export class DefaultSyncEngine implements SyncEngine {
 
       if (reason === "modify-modify" || reason === "delete-modify-local") {
         await this.pullRemoteCopy(conflict.path, conflictPath, config);
+        pendingLocalBaselinePaths.push(conflictPath);
         await this.log("warn", `Conflict keepBoth: remote copy saved as ${conflictPath}`);
         continue;
       }
 
       if (reason === "delete-modify-remote") {
         await this.copyLocalFile(conflict.path, conflictPath);
+        pendingLocalBaselinePaths.push(conflictPath);
         await this.log("warn", `Conflict keepBoth: local copy saved as ${conflictPath}`);
         continue;
       }
@@ -796,6 +931,8 @@ export class DefaultSyncEngine implements SyncEngine {
         await this.log("warn", `Conflict keepBoth: remote restored ${conflict.path}`);
       }
     }
+
+    return pendingLocalBaselinePaths;
   }
 
   private nextConflictPath(path: string, tag: string): string {
@@ -827,12 +964,18 @@ export class DefaultSyncEngine implements SyncEngine {
     local: LocalIndex,
     remote: RemoteIndex,
     commitSha?: string,
-    placeholderDirectories: string[] = []
+    placeholderDirectories: string[] = [],
+    excludePaths: string[] = []
   ): SyncBaseline {
     const entries: SyncBaseline["entries"] = {};
+    const excluded = new Set(excludePaths.map((path) => normalizePath(path)));
     const paths = new Set<string>([...Object.keys(local), ...Object.keys(remote)]);
 
     for (const path of paths) {
+      if (excluded.has(normalizePath(path))) {
+        continue;
+      }
+
       const localEntry = local[path];
       const remoteEntry = remote[path];
       const entry = {
@@ -1002,6 +1145,11 @@ export class DefaultSyncEngine implements SyncEngine {
   private getLocalRootPath(rootPath: string): string {
     const trimmed = rootPath.trim();
     return trimmed.length > 0 ? normalizePath(trimmed) : "";
+  }
+
+  private isNotFoundError(error: unknown): boolean {
+    const message = error instanceof Error ? error.message : String(error);
+    return message.includes("404");
   }
 
   private getRepoSubfolder(config: SyncConfig): string {

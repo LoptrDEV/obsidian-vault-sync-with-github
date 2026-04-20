@@ -72,10 +72,8 @@ describe("DefaultSyncPlanner", () => {
     });
 
     const result = planner.plan(local, remote, baseline);
-    expect(result.ops).toEqual([]);
-    expect(result.conflicts).toEqual([
-      { type: "conflict", path: "e.md", reason: "local-missing-remote" },
-    ]);
+    expect(result.ops).toEqual([{ type: "push_delete", path: "e.md" }]);
+    expect(result.conflicts).toEqual([]);
   });
 
   it("plans delete when remote removed", () => {
@@ -113,7 +111,31 @@ describe("DefaultSyncPlanner", () => {
     ]);
   });
 
-  it("flags conflict when local missing but remote unchanged", () => {
+  it("does not delete an unchanged local-only baseline entry when remote is still empty", () => {
+    const local: LocalIndex = { "hello.md": localEntry("hello.md", "h1") };
+    const remote: RemoteIndex = {};
+    const baseline = makeBaseline({
+      "hello.md": { path: "hello.md", hash: "h1" },
+    }, "");
+
+    const result = planner.plan(local, remote, baseline);
+    expect(result.ops).toEqual([]);
+    expect(result.conflicts).toEqual([]);
+  });
+
+  it("pushes a changed local-only baseline entry when remote is still empty", () => {
+    const local: LocalIndex = { "hello.md": localEntry("hello.md", "h2") };
+    const remote: RemoteIndex = {};
+    const baseline = makeBaseline({
+      "hello.md": { path: "hello.md", hash: "h1" },
+    }, "");
+
+    const result = planner.plan(local, remote, baseline);
+    expect(result.ops).toEqual([{ type: "push_new", path: "hello.md" }]);
+    expect(result.conflicts).toEqual([]);
+  });
+
+  it("pushes delete when local missing and remote is unchanged", () => {
     const local: LocalIndex = {};
     const remote: RemoteIndex = { "i.md": remoteEntry("i.md", "s1") };
     const baseline = makeBaseline({
@@ -121,10 +143,8 @@ describe("DefaultSyncPlanner", () => {
     });
 
     const result = planner.plan(local, remote, baseline);
-    expect(result.conflicts).toEqual([
-      { type: "conflict", path: "i.md", reason: "local-missing-remote" },
-    ]);
-    expect(result.ops).toEqual([]);
+    expect(result.ops).toEqual([{ type: "push_delete", path: "i.md" }]);
+    expect(result.conflicts).toEqual([]);
   });
 
   it("detects local rename", () => {
@@ -163,9 +183,8 @@ describe("DefaultSyncPlanner", () => {
     const result = planner.plan(local, remote, baseline);
     expect(result.ops).toEqual([
       { type: "rename_local", from: "old.md", to: "renamed.md" },
+      { type: "push_delete", path: "gone.md" },
     ]);
-    expect(result.conflicts).toEqual([
-      { type: "conflict", path: "gone.md", reason: "local-missing-remote" },
-    ]);
+    expect(result.conflicts).toEqual([]);
   });
 });

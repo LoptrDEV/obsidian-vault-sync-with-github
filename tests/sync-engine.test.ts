@@ -76,6 +76,8 @@ describe("DefaultSyncEngine", () => {
       createCommit: vi.fn().mockResolvedValue("commit-new"),
       updateRef: vi.fn().mockResolvedValue(undefined),
       getFile: vi.fn().mockResolvedValue({ content: "Zg==", sha: "s" }),
+      putFile: vi.fn().mockResolvedValue(undefined),
+      deleteFile: vi.fn().mockResolvedValue(undefined),
     };
 
     const engine = new DefaultSyncEngine(
@@ -211,6 +213,169 @@ describe("DefaultSyncEngine", () => {
 
     await expect(engine.sync(makeConfig())).rejects.toThrow("Sync failed with 1 errors.");
     expect(logs.some((entry) => entry.includes("Op failed"))).toBe(true);
+  });
+
+  it("bootstraps the first push into an empty repository via the contents API", async () => {
+    const vault = new FakeVault();
+    await vault.createBinary("note.md", new Uint8Array([1, 2, 3]));
+    const app = new FakeApp(vault);
+
+    const stateStore = {
+      loadBaseline: vi.fn().mockResolvedValue(null),
+      saveBaseline: vi.fn(),
+      saveConflicts: vi.fn(),
+      appendLog: vi.fn(),
+      savePreview: vi.fn(),
+      saveHealth: vi.fn(),
+    };
+
+    const localIndexer = {
+      scan: vi.fn().mockResolvedValue({
+        "note.md": { path: "note.md", hash: "h1", mtime: 1, size: 3 },
+      }),
+      setPreviousBaseline: vi.fn(),
+      setMaxFileSizeMB: vi.fn(),
+    };
+
+    const remoteIndexer = {
+      fetchIndex: vi.fn().mockResolvedValue({}),
+      getLastFetchMeta: vi.fn().mockReturnValue(null),
+    };
+
+    const planner = {
+      plan: vi.fn().mockReturnValue({
+        ops: [{ type: "push_new", path: "note.md" }],
+        conflicts: [],
+      }),
+    };
+
+    const gitClient = {
+      getCommitInfo: vi
+        .fn()
+        .mockResolvedValueOnce({ sha: "", date: "" })
+        .mockResolvedValue({ sha: "head", date: "" }),
+      getCommitTreeSha: vi.fn(),
+      createBlob: vi.fn(),
+      createTree: vi.fn(),
+      createCommit: vi.fn(),
+      updateRef: vi.fn(),
+      putFile: vi.fn().mockResolvedValue(undefined),
+      getFile: vi.fn(),
+      getLastRateLimitSnapshot: vi.fn().mockReturnValue(null),
+    };
+
+    const engine = new DefaultSyncEngine(
+      app as any,
+      gitClient as any,
+      localIndexer as any,
+      remoteIndexer as any,
+      planner as any,
+      new DefaultConflictResolver(),
+      stateStore as any
+    );
+
+    await engine.sync(makeConfig());
+
+    expect(gitClient.putFile).toHaveBeenCalledWith(
+      "note.md",
+      "AQID",
+      "sync: initialize repository with note.md",
+      undefined,
+      "main"
+    );
+    expect(gitClient.createBlob).not.toHaveBeenCalled();
+    expect(gitClient.createTree).not.toHaveBeenCalled();
+    expect(gitClient.createCommit).not.toHaveBeenCalled();
+    expect(gitClient.updateRef).not.toHaveBeenCalled();
+  });
+
+  it("uses the contents API for delete batches against an initialized repository", async () => {
+    const vault = new FakeVault();
+    await vault.createBinary("note.md", new Uint8Array([4]));
+    const app = new FakeApp(vault);
+
+    const stateStore = {
+      loadBaseline: vi.fn().mockResolvedValue(null),
+      saveBaseline: vi.fn(),
+      saveConflicts: vi.fn(),
+      appendLog: vi.fn(),
+      savePreview: vi.fn(),
+      saveHealth: vi.fn(),
+    };
+
+    const localIndexer = {
+      scan: vi.fn().mockResolvedValue({
+        "note.md": { path: "note.md", hash: "h2", mtime: 2, size: 1 },
+      }),
+      setPreviousBaseline: vi.fn(),
+      setMaxFileSizeMB: vi.fn(),
+    };
+
+    const remoteIndexer = {
+      fetchIndex: vi.fn().mockResolvedValue({}),
+      getLastFetchMeta: vi.fn().mockReturnValue(null),
+    };
+
+    const planner = {
+      plan: vi.fn().mockReturnValue({
+        ops: [
+          { type: "push_update", path: "note.md" },
+          { type: "push_delete", path: "old.md" },
+        ],
+        conflicts: [],
+      }),
+    };
+
+    const gitClient = {
+      getCommitInfo: vi.fn().mockResolvedValue({ sha: "head", date: "" }),
+      getCommitTreeSha: vi.fn(),
+      createBlob: vi.fn(),
+      createTree: vi.fn(),
+      createCommit: vi.fn(),
+      updateRef: vi.fn(),
+      getFile: vi.fn(async (path: string) => {
+        if (path === "note.md") {
+          throw new Error("GitHub API error 404: {\"message\":\"Not Found\"}");
+        }
+        if (path === "old.md") {
+          return { content: "Zg==", sha: "old-sha" };
+        }
+        throw new Error(`unexpected path ${path}`);
+      }),
+      putFile: vi.fn().mockResolvedValue(undefined),
+      deleteFile: vi.fn().mockResolvedValue(undefined),
+      getLastRateLimitSnapshot: vi.fn().mockReturnValue(null),
+    };
+
+    const engine = new DefaultSyncEngine(
+      app as any,
+      gitClient as any,
+      localIndexer as any,
+      remoteIndexer as any,
+      planner as any,
+      new DefaultConflictResolver(),
+      stateStore as any
+    );
+
+    await engine.sync(makeConfig());
+
+    expect(gitClient.putFile).toHaveBeenCalledWith(
+      "note.md",
+      "BA==",
+      "sync: update note.md",
+      undefined,
+      "main"
+    );
+    expect(gitClient.deleteFile).toHaveBeenCalledWith(
+      "old.md",
+      "sync: delete old.md",
+      "old-sha",
+      "main"
+    );
+    expect(gitClient.createBlob).not.toHaveBeenCalled();
+    expect(gitClient.createTree).not.toHaveBeenCalled();
+    expect(gitClient.createCommit).not.toHaveBeenCalled();
+    expect(gitClient.updateRef).not.toHaveBeenCalled();
   });
 
   it("removes orphaned gitkeep placeholders and empty folders after local deletes", async () => {
@@ -462,6 +627,94 @@ describe("DefaultSyncEngine", () => {
       (path) => path.startsWith("note (conflict-remote-") && path.endsWith(").md")
     );
     expect(hasConflictCopy).toBe(true);
+    vi.useRealTimers();
+  });
+
+  it("keeps auto-created keepBoth conflict copies out of the refreshed baseline", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2024-01-01T00:00:00Z"));
+
+    const vault = new FakeVault();
+    await vault.createBinary("note.md", new Uint8Array([1]));
+    const app = new FakeApp(vault);
+    const conflictTimestamp = (() => {
+      const date = new Date();
+      const year = date.getFullYear();
+      const month = String(date.getMonth() + 1).padStart(2, "0");
+      const day = String(date.getDate()).padStart(2, "0");
+      const hours = String(date.getHours()).padStart(2, "0");
+      const minutes = String(date.getMinutes()).padStart(2, "0");
+      return `${year}${month}${day}-${hours}${minutes}`;
+    })();
+    const conflictCopyPath = `note (conflict-remote-${conflictTimestamp}).md`;
+
+    const stateStore = {
+      loadBaseline: vi.fn().mockResolvedValue(null),
+      saveBaseline: vi.fn(),
+      saveConflicts: vi.fn(),
+      appendLog: vi.fn(),
+    };
+
+    const localIndexer = {
+      scan: vi
+        .fn()
+        .mockResolvedValueOnce({
+          "note.md": { path: "note.md", hash: "local-h1", mtime: 1, size: 1 },
+        })
+        .mockResolvedValueOnce({
+          "note.md": { path: "note.md", hash: "local-h1", mtime: 1, size: 1 },
+          [conflictCopyPath]: { path: conflictCopyPath, hash: "copy-h1", mtime: 2, size: 1 },
+        }),
+      setPreviousBaseline: vi.fn(),
+      setMaxFileSizeMB: vi.fn(),
+    };
+
+    const remoteIndexer = {
+      fetchIndex: vi
+        .fn()
+        .mockResolvedValueOnce({
+          "note.md": { path: "note.md", sha: "remote-s1", size: 1, lastCommitTime: 1 },
+        })
+        .mockResolvedValueOnce({
+          "note.md": { path: "note.md", sha: "remote-s1", size: 1, lastCommitTime: 1 },
+        }),
+      getLastFetchMeta: vi.fn().mockReturnValue(null),
+    };
+
+    const planner = {
+      plan: vi.fn().mockReturnValue({
+        ops: [],
+        conflicts: [{ type: "conflict", path: "note.md", reason: "modify-modify" }],
+      }),
+    };
+
+    const gitClient = {
+      getCommitInfo: vi.fn().mockResolvedValue({ sha: "head", date: "" }),
+      getCommitTreeSha: vi.fn().mockResolvedValue("tree"),
+      createBlob: vi.fn().mockResolvedValue("blob"),
+      createTree: vi.fn().mockResolvedValue("tree-new"),
+      createCommit: vi.fn().mockResolvedValue("commit-new"),
+      updateRef: vi.fn().mockResolvedValue(undefined),
+      getFile: vi.fn().mockResolvedValue({ content: "Zg==", sha: "remote-s1" }),
+      getLastRateLimitSnapshot: vi.fn().mockReturnValue(null),
+    };
+
+    const engine = new DefaultSyncEngine(
+      app as any,
+      gitClient as any,
+      localIndexer as any,
+      remoteIndexer as any,
+      planner as any,
+      new DefaultConflictResolver(),
+      stateStore as any
+    );
+
+    await engine.sync({ ...makeConfig(), conflictPolicy: "keepBoth" });
+
+    const baselineCall = stateStore.saveBaseline.mock.calls[0]?.[0] as SyncBaseline;
+    expect(baselineCall).toBeDefined();
+    expect(baselineCall.entries["note.md"]).toBeDefined();
+    expect(baselineCall.entries[conflictCopyPath]).toBeUndefined();
     vi.useRealTimers();
   });
 

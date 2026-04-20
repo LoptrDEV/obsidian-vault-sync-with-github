@@ -54,6 +54,9 @@ Release smoke should verify at minimum:
 - migrating `data.json` from `github-api-sync`, `obsidian-github-api-sync`, or `obsidian-vault-sync-with-github` into `vault-sync-with-github` preserves usable settings and local auth state
 - settings save/load correctly
 - a sync run can complete against a test repository
+- the first sync into a newly created empty GitHub test repository succeeds
+- local create, update, and delete operations propagate in the expected direction when the other side is unchanged
+- `keepBoth` conflict copies are created locally and get uploaded on a later sync as new files
 - GitHub App device-flow login can complete on at least one desktop path and one mobile path when that auth mode is enabled
 - stored GitHub App auth refreshes without asking the user to log in again when the token is near expiry
 - preview / approve-and-run / health / repair-baseline commands remain usable and readable

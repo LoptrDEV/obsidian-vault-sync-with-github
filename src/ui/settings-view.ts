@@ -334,25 +334,23 @@ export class SettingsView extends PluginSettingTab {
       "Run sync, preview, health, logs, conflicts, and baseline repair without leaving settings."
     );
 
-    const firstRow = containerEl.createDiv({ cls: "github-api-sync-action-row" });
-    this.createActionButton(firstRow, "Sync now", async () => {
+    const grid = containerEl.createDiv({ cls: "github-api-sync-action-grid" });
+    this.createActionButton(grid, "Sync now", async () => {
       await this.plugin.triggerSyncNow();
     });
-    this.createActionButton(firstRow, "Preview plan", async () => {
+    this.createActionButton(grid, "Preview plan", async () => {
       await this.plugin.triggerSyncPreview();
     });
-    this.createActionButton(firstRow, "Show health", () => {
+    this.createActionButton(grid, "Show health", () => {
       this.plugin.openSyncHealth();
     });
-
-    const secondRow = containerEl.createDiv({ cls: "github-api-sync-action-row" });
-    this.createActionButton(secondRow, "Show log", () => {
+    this.createActionButton(grid, "Show log", () => {
       this.plugin.openSyncLog();
     });
-    this.createActionButton(secondRow, "Conflicts", () => {
+    this.createActionButton(grid, "Conflicts", () => {
       this.plugin.openSyncConflicts();
     });
-    this.createActionButton(secondRow, "Repair baseline", async () => {
+    this.createActionButton(grid, "Repair baseline", async () => {
       await this.plugin.triggerRepairBaseline();
     });
 
@@ -361,11 +359,11 @@ export class SettingsView extends PluginSettingTab {
       warning.setText(
         "A stored preview currently requires approval before a destructive sync can continue."
       );
-      const approvalRow = containerEl.createDiv({ cls: "github-api-sync-action-row" });
-      this.createActionButton(approvalRow, "Approve and run", async () => {
+      const approvalGrid = containerEl.createDiv({ cls: "github-api-sync-action-grid github-api-sync-action-grid-approval" });
+      this.createActionButton(approvalGrid, "Approve and run", async () => {
         await this.plugin.triggerApprovedSync();
       });
-      this.createActionButton(approvalRow, "Open preview", () => {
+      this.createActionButton(approvalGrid, "Open preview", () => {
         this.plugin.openSyncPreview();
       });
     }
@@ -376,7 +374,10 @@ export class SettingsView extends PluginSettingTab {
     label: string,
     action: () => void | Promise<void>
   ): void {
-    const button = parent.createEl("button", { text: label });
+    const button = parent.createEl("button", {
+      text: label,
+      cls: "github-api-sync-action-button",
+    });
     button.onclick = () => {
       void action();
     };

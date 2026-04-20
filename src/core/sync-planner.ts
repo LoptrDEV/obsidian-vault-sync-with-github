@@ -74,7 +74,15 @@ export class DefaultSyncPlanner implements SyncPlanner {
       }
 
       if (localEntry && !remoteEntry) {
+        const baseHadRemote = Boolean(baseEntry.sha);
         const localChanged = this.hasLocalChanged(localEntry, baseEntry);
+        if (!baseHadRemote) {
+          if (localChanged) {
+            ops.push({ type: "push_new", path });
+          }
+          continue;
+        }
+
         if (localChanged) {
           conflicts.push({ type: "conflict", path, reason: "delete-modify-remote" });
         } else {
@@ -84,11 +92,19 @@ export class DefaultSyncPlanner implements SyncPlanner {
       }
 
       if (!localEntry && remoteEntry) {
+        const baseHadLocal = Boolean(baseEntry.hash);
         const remoteChanged = this.hasRemoteChanged(remoteEntry, baseEntry);
+        if (!baseHadLocal) {
+          if (remoteChanged) {
+            ops.push({ type: "pull_new", path });
+          }
+          continue;
+        }
+
         if (remoteChanged) {
           conflicts.push({ type: "conflict", path, reason: "delete-modify-local" });
         } else {
-          conflicts.push({ type: "conflict", path, reason: "local-missing-remote" });
+          ops.push({ type: "push_delete", path });
         }
       }
     }

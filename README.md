@@ -34,11 +34,12 @@ When a fix is still narrowly useful upstream, it is better sent back as a focuse
 
 - syncs vault content against a GitHub repository through the GitHub REST API
 - preserves folder structure and common file operations
+- can initialize a newly created empty GitHub repository on the first successful push
 - supports conflict handling and sync logs
 - supports a configurable remote sync root and an optional local sync root
 - supports sync previews, destructive-delete approval, health diagnostics, and baseline repair commands
 - uses a built-in shared GitHub App and can suggest available repositories from the installed app
-- is intended for Obsidian desktop and mobile because `manifest.json` sets `isDesktopOnly` to `false`
+- is designed to stay usable on Obsidian desktop and mobile; `manifest.json` leaves mobile enabled with `isDesktopOnly: false`, but each release still needs manual smoke coverage on both
 
 ## Security and privacy disclosures
 
@@ -46,17 +47,27 @@ When a fix is still narrowly useful upstream, it is better sent back as a focuse
 
 Yes. The plugin talks to the GitHub API when the user configures GitHub credentials and runs or schedules sync.
 
+### No custom backend
+
+No. The plugin sends requests directly from Obsidian to GitHub endpoints such as `https://github.com/login/*` and `https://api.github.com`. This repository does not run a separate sync relay, token broker, or telemetry collector for the plugin runtime.
+
 ### Account requirement
 
 Yes. You need a GitHub account plus the built-in shared GitHub App installed on the target repository.
 
 ### Data leaves your device
 
-Yes. Any files and metadata selected for sync are sent to the configured GitHub repository. That can include note contents, attachment bytes, file paths, and commit metadata. If Remote sync root is set to `Subfolder only`, synced content is constrained to that remote subfolder (for example `vault/`). If Local sync root is set, only that vault-relative subtree is scanned locally.
+Yes. The plugin sends data to GitHub for auth, repository discovery, and sync operations.
+
+During GitHub App login and refresh, GitHub receives the bundled public client ID, device-flow requests, authorization completion, and refresh-token exchanges.
+
+During repository discovery, GitHub receives token-authenticated requests for the signed-in viewer, visible app installations, and visible repositories in those installations. That includes data such as your GitHub login, installation IDs, installation account logins, repository names/full names, and whether a listed repository is private.
+
+During sync, GitHub receives the configured repository coordinates and branch, file paths, file contents and attachment bytes for uploaded files, delete/update intents, blob/tree/commit/ref operations, and commit messages created by the plugin. If Remote sync root is set to `Subfolder only`, synced content is constrained to that remote subfolder (for example `vault/`). If Local sync root is set, only that vault-relative subtree is scanned locally before upload planning.
 
 ### Secrets
 
-GitHub App auth stores expiring access and refresh tokens locally inside plugin data so the plugin can refresh your login without sending you through the browser each time. Do **not** sync `.obsidian/` or plugin settings into a public repository when GitHub App auth is enabled.
+GitHub App auth stores expiring access and refresh tokens locally inside plugin data so the plugin can refresh your login without sending you through the browser each time. This plugin does not send those locally stored tokens to a maintainer-operated backend because there is no such backend in the current design. Do **not** sync `.obsidian/` or plugin settings into a public repository when GitHub App auth is enabled.
 
 ### Telemetry
 
@@ -64,7 +75,23 @@ This repository does not define telemetry or analytics as an allowed feature. If
 
 ### Mobile support
 
-The plugin is intended to run on desktop and mobile. Each release should still be manually smoke-tested on both before it is treated as release-ready.
+The plugin is intended to run on desktop and mobile. `isDesktopOnly: false` only keeps the mobile path available; release readiness still requires manual smoke coverage on both desktop and mobile.
+
+### Shared GitHub App trust boundary
+
+Using the bundled shared GitHub App means trusting both GitHub as the platform operator and the owner of that GitHub App registration.
+
+GitHub can process the login flow, API traffic, and any repository data that you sync there, because the plugin talks directly to GitHub's hosted login and API endpoints.
+
+The runtime user access token used by the plugin is limited to the intersection of what the signed-in user can access and what the app has been granted for the installation.
+
+The shared app owner can change the app's metadata and requested permissions in GitHub. If the app later asks for broader permissions, GitHub requires installation owners to approve those permission increases before they take effect for an installation.
+
+Because the app is maintainer-owned, the app owner could in principle generate installation access tokens outside this plugin and use the app's currently granted repository permissions against repositories where the app is installed. This repository does not ship a proxy or automation that does that for end users, but that trust boundary is inherent in using a third-party shared GitHub App.
+
+The app owner does **not** automatically receive your local vault, your locally stored refresh token, or your plugin data from this plugin. Those stay local unless you sync them into GitHub yourself or share them manually.
+
+If that trust model is not acceptable for a repository, do not install the shared app on that repository.
 
 ## Token permissions
 
@@ -83,7 +110,6 @@ That shared app is expected to have:
 
 - **Enable Device Flow**
 - **Expire user authorization tokens** enabled
-- repository permissions:
 - `Contents: Read & write`
 - `Metadata: Read`
 

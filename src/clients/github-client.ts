@@ -48,6 +48,7 @@ type CachedGetResponse = ResponsePayload & {
  * requests so sync bursts stay closer to GitHub's REST best practices.
  */
 export class GitHubApiClient implements GitHubClient {
+  private static readonly EMPTY_TREE_SHA = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
   private token: string;
   private owner: string;
   private repo: string;
@@ -102,23 +103,45 @@ export class GitHubApiClient implements GitHubClient {
   }
 
   async listTree(ref: string): Promise<GitHubTreeResult> {
-    const response = await this.fetchTree(ref, true);
-    if (!response.truncated) {
-      return {
-        index: this.buildIndexFromTreeEntries(response.tree ?? []),
-        truncated: false,
-        usedTruncatedTreeFallback: false,
-      };
-    }
+    try {
+      const response = await this.fetchTree(ref, true);
+      if (!response.truncated) {
+        return {
+          index: this.buildIndexFromTreeEntries(response.tree ?? []),
+          truncated: false,
+          usedTruncatedTreeFallback: false,
+        };
+      }
 
-    const commitSha = await this.getCommitSha(ref);
-    const rootTreeSha = await this.getCommitTreeSha(commitSha);
-    const walkedIndex = await this.walkTree(rootTreeSha, "");
-    return {
-      index: walkedIndex,
-      truncated: true,
-      usedTruncatedTreeFallback: true,
-    };
+      const commitSha = await this.getCommitSha(ref);
+      const rootTreeSha = await this.getCommitTreeSha(commitSha);
+      const walkedIndex = await this.walkTree(rootTreeSha, "");
+      return {
+        index: walkedIndex,
+        truncated: true,
+        usedTruncatedTreeFallback: true,
+      };
+    } catch (error) {
+      if (this.isEmptyRepoConflict(error)) {
+        throw new Error("Git Repository is empty");
+      }
+      if (this.isNotFoundError(error)) {
+        const commitInfo = await this.getCommitInfo(ref);
+        if (!commitInfo.sha) {
+          throw new Error("Git Repository is empty");
+        }
+
+        const rootTreeSha = await this.getCommitTreeSha(commitInfo.sha);
+        if (this.isEmptyTreeSha(rootTreeSha)) {
+          return {
+            index: {},
+            truncated: false,
+            usedTruncatedTreeFallback: false,
+          };
+        }
+      }
+      throw error;
+    }
   }
 
   async getCommitSha(branch: string): Promise<string> {
@@ -141,7 +164,7 @@ export class GitHubApiClient implements GitHubClient {
         date: data.commit.committer?.date ?? new Date(0).toISOString(),
       };
     } catch (error) {
-      if (this.isEmptyRepoError(error)) {
+      if (this.isEmptyRepoError(error) || this.isEmptyRepoConflict(error)) {
         return { sha: "", date: new Date(0).toISOString() };
       }
       throw error;
@@ -177,7 +200,7 @@ export class GitHubApiClient implements GitHubClient {
         fileListMayBeIncomplete: hasPagination || files.length >= 300,
       };
     } catch (error) {
-      if (this.isEmptyRepoError(error)) {
+      if (this.isEmptyRepoError(error) || this.isEmptyRepoConflict(error)) {
         return {
           files: [],
           headCommitDate: new Date(0).toISOString(),
@@ -289,7 +312,7 @@ export class GitHubApiClient implements GitHubClient {
   }
 
   private async walkTree(treeSha: string, prefix: string): Promise<RemoteIndex> {
-    if (!treeSha) {
+    if (!treeSha || this.isEmptyTreeSha(treeSha)) {
       return {};
     }
 
@@ -335,6 +358,15 @@ export class GitHubApiClient implements GitHubClient {
       };
     }
     return index;
+  }
+
+  private isEmptyTreeSha(treeSha: string): boolean {
+    return treeSha === GitHubApiClient.EMPTY_TREE_SHA;
+  }
+
+  private isNotFoundError(error: unknown): boolean {
+    const message = error instanceof Error ? error.message : String(error);
+    return message.includes("404");
   }
 
   private async request(
@@ -553,6 +585,34 @@ export class GitHubApiClient implements GitHubClient {
   private isEmptyRepoError(error: unknown): boolean {
     const message = error instanceof Error ? error.message : String(error);
     return message.includes("Git Repository is empty");
+  }
+
+  private isEmptyRepoConflict(error: unknown): boolean {
+    const status = this.extractErrorStatus(error);
+    return status === 409;
+  }
+
+  private extractErrorStatus(error: unknown): number | null {
+    if (!error || typeof error !== "object") {
+      return null;
+    }
+
+    const obj = error as {
+      status?: unknown;
+      response?: {
+        status?: unknown;
+      };
+    };
+
+    if (typeof obj.status === "number") {
+      return obj.status;
+    }
+
+    if (typeof obj.response?.status === "number") {
+      return obj.response.status;
+    }
+
+    return null;
   }
 
   private getHeader(headers: Record<string, string>, key: string): string | undefined {

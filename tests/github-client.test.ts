@@ -129,6 +129,67 @@ describe("GitHubApiClient", () => {
     await expect(client.getCommitSha("main")).rejects.toThrow("409");
   });
 
+  it("treats a rejected 409 commit lookup as an empty repository", async () => {
+    const { requestUrl } = await import("obsidian");
+    const requestUrlMock = vi.mocked(requestUrl);
+
+    requestUrlMock.mockRejectedValue({
+      message: "Request failed, status 409",
+      status: 409,
+    });
+
+    const client = new GitHubApiClient("t", "o", "r");
+    await expect(client.getCommitInfo("main")).resolves.toEqual({
+      sha: "",
+      date: new Date(0).toISOString(),
+    });
+  });
+
+  it("surfaces an empty repository marker when the tree request rejects with 409", async () => {
+    const { requestUrl } = await import("obsidian");
+    const requestUrlMock = vi.mocked(requestUrl);
+
+    requestUrlMock.mockRejectedValue({
+      message: "Request failed, status 409",
+      status: 409,
+    });
+
+    const client = new GitHubApiClient("t", "o", "r");
+    await expect(client.listTree("main")).rejects.toThrow("Git Repository is empty");
+  });
+
+  it("treats a branch with an empty tree commit as an empty index", async () => {
+    const { requestUrl } = await import("obsidian");
+    const requestUrlMock = vi.mocked(requestUrl);
+
+    requestUrlMock
+      .mockRejectedValueOnce(new Error("GitHub API error 404: not found"))
+      .mockResolvedValueOnce(
+        makeResponse({
+          status: 200,
+          json: {
+            sha: "head-sha",
+            commit: { committer: { date: "2026-04-20T00:00:00.000Z" } },
+          },
+        })
+      )
+      .mockResolvedValueOnce(
+        makeResponse({
+          status: 200,
+          json: {
+            tree: { sha: "4b825dc642cb6eb9a060e54bf8d69288fbee4904" },
+          },
+        })
+      );
+
+    const client = new GitHubApiClient("t", "o", "r");
+    await expect(client.listTree("main")).resolves.toEqual({
+      index: {},
+      truncated: false,
+      usedTruncatedTreeFallback: false,
+    });
+  });
+
   it("encodes path segments", async () => {
     const { requestUrl } = await import("obsidian");
     const requestUrlMock = vi.mocked(requestUrl);

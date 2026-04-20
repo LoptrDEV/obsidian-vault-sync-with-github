@@ -23,6 +23,47 @@ When Remote sync root is set to a subfolder, only that configured remote subtree
 
 GitHub Actions may build and package the plugin, but ordinary CI should not need production sync tokens.
 
+### Direct network path
+
+The plugin talks directly from the Obsidian runtime to GitHub-hosted endpoints:
+
+- `https://github.com/login/*` for GitHub App device-flow login and token refresh
+- `https://api.github.com/*` for viewer lookup, installation discovery, repository discovery, and sync operations
+
+There is no separate maintainer-operated sync backend, proxy, or telemetry service in the current design.
+
+### Shared GitHub App trust boundary
+
+The bundled GitHub App is maintainer-owned. Using it therefore means trusting:
+
+- GitHub as the platform operator for login, API traffic, and storage of synced repository data
+- the GitHub App owner within the permissions and repository access that the installation grants
+
+Important consequences:
+
+- the runtime user access token used by the plugin is limited to the intersection of the user's access and the app's granted permissions/repository access
+- the plugin itself stores user access and refresh tokens locally and does not upload them to a maintainer backend because no such backend exists here
+- the app owner can change app metadata and requested permissions later; GitHub requires installation owners to approve permission increases before they take effect for an installation
+- as an inference from GitHub's app model, the owner of the shared app could generate installation access tokens outside this plugin for repositories where the app is installed, limited to the repositories and permissions currently granted to the app
+- if a user syncs `.obsidian/`, plugin data, or logs into GitHub manually, that user is expanding the trust boundary beyond the intended default
+
+### Data categories sent to GitHub
+
+Auth and repository discovery may send:
+
+- the shared app client ID
+- device-flow session and refresh-token exchanges
+- the signed-in GitHub login
+- installation IDs, installation account logins, repository names/full names, and repository privacy flags
+
+Sync operations may send:
+
+- repository owner/name and branch selection
+- remote path names and tree/blob metadata
+- file contents and attachment bytes for uploaded or updated files
+- delete/update/create operations, commit messages, tree state, commit state, and branch ref updates
+- repository metadata such as private/push/pull capability checks
+
 ## Token policy
 
 GitHub App baseline:
