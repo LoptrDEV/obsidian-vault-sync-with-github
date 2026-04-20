@@ -149,7 +149,9 @@ describe("DefaultSyncEngine", () => {
     await engine.sync(makeConfig());
 
     expect(stateStore.saveBaseline).toHaveBeenCalled();
-    const baseline = stateStore.saveBaseline.mock.calls[0][0] as SyncBaseline;
+    const firstBaselineCall = stateStore.saveBaseline.mock.calls[0];
+    expect(firstBaselineCall).toBeDefined();
+    const baseline = firstBaselineCall?.[0] as SyncBaseline;
     expect(baseline.commitSha).toBe("head");
   });
 
@@ -520,13 +522,17 @@ describe("DefaultSyncEngine", () => {
       repoSubfolder: "vault",
     });
 
-    const entries = gitClient.createTree.mock.calls[0][0].entries;
+    const firstCreateTreeCall = gitClient.createTree.mock.calls[0];
+    expect(firstCreateTreeCall).toBeDefined();
+    const entries = firstCreateTreeCall?.[0].entries ?? [];
     expect(entries[0].path).toBe("vault/note.md");
   });
 
   it("ignores hidden and ignored remote paths when planning pulls", async () => {
     const vault = new FakeVault();
     const app = new FakeApp(vault);
+    const configReadmePath = `${vault.configDir}/README.md`;
+    const configDirPattern = `${vault.configDir}/`;
 
     const logs: string[] = [];
     const stateStore = {
@@ -546,8 +552,8 @@ describe("DefaultSyncEngine", () => {
 
     const remoteIndexer = {
       fetchIndex: vi.fn().mockResolvedValue({
-        ".obsidian/README.md": {
-          path: ".obsidian/README.md",
+        [configReadmePath]: {
+          path: configReadmePath,
           sha: "s1",
           size: 1,
           lastCommitTime: 0,
@@ -589,12 +595,12 @@ describe("DefaultSyncEngine", () => {
 
     await engine.sync({
       ...makeConfig(),
-      ignorePatterns: [".obsidian/"],
+      ignorePatterns: [configDirPattern],
       conflictPolicy: "manual",
     });
 
     expect(vault.getAbstractFileByPath("remote.md")).not.toBeNull();
-    expect(vault.getAbstractFileByPath(".obsidian/README.md")).toBeNull();
+    expect(vault.getAbstractFileByPath(configReadmePath)).toBeNull();
     expect(vault.getAbstractFileByPath("00 Inbox/.gitkeep")).toBeNull();
     expect(
       logs.some((entry) =>

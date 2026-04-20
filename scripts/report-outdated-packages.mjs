@@ -8,6 +8,22 @@ const result = spawnSync(npmCommand, ["outdated"], {
 
 if (result.stdout) {
   process.stdout.write(result.stdout);
+
+  const notes = [];
+  if (result.stdout.includes("@types/node")) {
+    notes.push(
+      "- @types/node is intentionally kept on the Node 24 LTS line; npm outdated compares against the latest current major.",
+    );
+  }
+  if (result.stdout.includes("@eslint/js") || result.stdout.includes("eslint")) {
+    notes.push(
+      "- ESLint 10 is currently blocked by eslint-plugin-obsidianmd peer requirements (`eslint >=9 <10`, `@eslint/js ^9.30.1`).",
+    );
+  }
+
+  if (notes.length > 0) {
+    process.stdout.write(`\nPolicy notes:\n${notes.join("\n")}\n`);
+  }
 }
 
 if (result.stderr) {

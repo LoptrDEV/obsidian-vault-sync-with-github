@@ -14,7 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
-- the plugin now ships as the independent `obsidian-vault-sync-with-github` line maintained by Loptr instead of reusing the inherited fork identity
+- the plugin now ships as the independent `vault-sync-with-github` line maintained by Loptr instead of reusing the inherited fork identity
 - the built-in shared GitHub App now points at `obsidian-vault-sync-with-github`
 - settings now expose direct sync/preview/health/repair actions and a simpler shared-app repository picker
 - preview output is grouped into human-readable sections instead of a raw text dump

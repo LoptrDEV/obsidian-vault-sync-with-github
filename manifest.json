@@ -1,6 +1,6 @@
 {
-  "id": "obsidian-vault-sync-with-github",
-  "name": "Obsidian Vault Sync with GitHub",
+  "id": "vault-sync-with-github",
+  "name": "Vault Sync with GitHub",
   "version": "1.1.0",
   "minAppVersion": "1.5.0",
   "description": "Bidirectional vault sync for Obsidian with GitHub.",

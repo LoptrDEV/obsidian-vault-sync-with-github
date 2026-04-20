@@ -3,12 +3,14 @@
 ## Supported versions
 
 This repository is maintained as an independent continuation of the upstream project.
-There are currently no tagged releases published from this repository.
+The current independent plugin line has no published releases yet.
+Historical inherited tags may still exist because this repository started from upstream history, but they are not supported releases of this independent plugin line.
 
 | Version | Supported |
 | --- | --- |
 | `main` | :white_check_mark: active development |
-| tagged releases | :x: none published yet |
+| inherited historical tags | :x: unsupported |
+| future tagged releases of this plugin line | :x: none published yet |
 
 ## Reporting a vulnerability
 

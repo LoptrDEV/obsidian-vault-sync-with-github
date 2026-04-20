@@ -134,7 +134,7 @@ export class ConflictActionRunner {
       return;
     }
 
-    await this.app.fileManager.trashFile(abstractFile);
+    await this.app.vault.trash(abstractFile, true);
   }
 
   private async deleteRemote(path: string, config: SyncConfig): Promise<void> {

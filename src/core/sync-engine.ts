@@ -635,7 +635,7 @@ export class DefaultSyncEngine implements SyncEngine {
       return;
     }
 
-    await this.app.fileManager.trashFile(abstractFile);
+    await this.app.vault.trash(abstractFile, true);
   }
 
   private async pullRemoteFile(path: string, config: SyncConfig): Promise<void> {

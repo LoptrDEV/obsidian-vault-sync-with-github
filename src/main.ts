@@ -31,8 +31,8 @@ export default class GitHubApiSyncPlugin extends Plugin {
     this.addSettingTab(new SettingsView(this.app, this));
 
     // Add ribbon icon for quick sync
-    this.ribbonIconEl = this.addRibbonIcon("refresh-cw", "GitHub sync", async (_evt: MouseEvent) => {
-      await this.runSync();
+    this.ribbonIconEl = this.addRibbonIcon("refresh-cw", "GitHub sync", (_evt: MouseEvent) => {
+      void this.runSync();
     });
     // Add class for custom styling if needed
     this.ribbonIconEl.addClass("github-sync-ribbon-icon");
@@ -40,8 +40,8 @@ export default class GitHubApiSyncPlugin extends Plugin {
     this.addCommand({
       id: "sync-now",
       name: "Sync now",
-      callback: async () => {
-        await this.triggerSyncNow();
+      callback: () => {
+        void this.triggerSyncNow();
       },
     });
 
@@ -64,16 +64,16 @@ export default class GitHubApiSyncPlugin extends Plugin {
     this.addCommand({
       id: "sync-preview",
       name: "Preview sync plan",
-      callback: async () => {
-        await this.triggerSyncPreview();
+      callback: () => {
+        void this.triggerSyncPreview();
       },
     });
 
     this.addCommand({
       id: "sync-approve-and-run",
       name: "Approve destructive sync and run",
-      callback: async () => {
-        await this.triggerApprovedSync();
+      callback: () => {
+        void this.triggerApprovedSync();
       },
     });
 
@@ -88,8 +88,8 @@ export default class GitHubApiSyncPlugin extends Plugin {
     this.addCommand({
       id: "sync-repair-baseline",
       name: "Repair sync baseline",
-      callback: async () => {
-        await this.triggerRepairBaseline();
+      callback: () => {
+        void this.triggerRepairBaseline();
       },
     });
 
@@ -239,14 +239,14 @@ export default class GitHubApiSyncPlugin extends Plugin {
       return;
     }
 
-    this.syncIntervalId = window.setInterval(() => {
+    this.syncIntervalId = activeWindow.setInterval(() => {
       void this.runSync();
     }, minutes * 60 * 1000);
   }
 
   private clearSyncInterval(): void {
     if (this.syncIntervalId !== null) {
-      window.clearInterval(this.syncIntervalId);
+      activeWindow.clearInterval(this.syncIntervalId);
       this.syncIntervalId = null;
     }
   }

@@ -55,6 +55,7 @@ Do not use a `v` prefix unless release policy is explicitly changed.
 
 - changelog updated
 - README disclosures still accurate
+- dependency and external-resource review completed using `docs/dependency-management.md`
 - manual smoke run completed on the intended platforms
 - no unresolved security or token-handling concerns
 - ADR-0007 still respected; release metadata still matches this repository's independent plugin identity
@@ -63,3 +64,24 @@ Do not use a `v` prefix unless release policy is explicitly changed.
 
 This repository now maintains `versions.json` as part of release readiness for an independent plugin line.
 Before any community-plugin submission, verify that manifest identity, release assets, and repository metadata all still match this repository's independent plugin identity.
+See `docs/obsidian-community-submission.md` for the concrete first-submission flow and the ready-to-paste catalog entry.
+
+## Community-plugin submission checklist
+
+Before opening a PR against `obsidianmd/obsidian-releases`:
+
+- `manifest.json` uses the independent plugin ID `vault-sync-with-github`
+- `manifest.json` does not use `obsidian` in the plugin ID
+- `package.json` name matches the plugin ID
+- `package.json` repository metadata points at the public GitHub repo
+- `versions.json` contains the current plugin version and maps it to the current `minAppVersion`
+- the GitHub release for that exact version already exists and attaches `main.js`, `manifest.json`, and `styles.css` when shipped
+- repository README, changelog, and security disclosures reflect the public release state
+- manual smoke tests cover desktop, mobile, auth, sync preview/apply, conflict handling, and migration from prior local test IDs
+- `npm run submission:preflight` succeeds locally
+
+Submission flow:
+
+1. publish or finalize the draft GitHub release for the target version
+2. add the repository entry to `community-plugins.json` in `obsidianmd/obsidian-releases`
+3. confirm the submitted plugin ID, repository URL, and release assets all point to the same independent plugin line

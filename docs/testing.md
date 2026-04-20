@@ -50,8 +50,8 @@ Before publishing a release from this repository, manually smoke-test:
 Release smoke should verify at minimum:
 
 - plugin enables successfully
-- plugin installs under the independent plugin ID `obsidian-vault-sync-with-github` and does not conflict with a leftover local install of the upstream `github-api-sync` plugin or an older local fork install under `obsidian-github-api-sync`
-- migrating `data.json` from `github-api-sync` or `obsidian-github-api-sync` into `obsidian-vault-sync-with-github` preserves usable settings and local auth state
+- plugin installs under the independent plugin ID `vault-sync-with-github` and does not conflict with a leftover local install of the upstream `github-api-sync`, an older local fork install under `obsidian-github-api-sync`, or a pre-submission build of this line under `obsidian-vault-sync-with-github`
+- migrating `data.json` from `github-api-sync`, `obsidian-github-api-sync`, or `obsidian-vault-sync-with-github` into `vault-sync-with-github` preserves usable settings and local auth state
 - settings save/load correctly
 - a sync run can complete against a test repository
 - GitHub App device-flow login can complete on at least one desktop path and one mobile path when that auth mode is enabled

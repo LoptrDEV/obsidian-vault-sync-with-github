@@ -1,7 +1,28 @@
-import js from "@eslint/js";
+import json from "@eslint/json";
+import globals from "globals";
+import obsidianmd from "eslint-plugin-obsidianmd";
 import tseslint from "typescript-eslint";
-import tsdoc from "eslint-plugin-tsdoc";
 import { defineConfig } from "eslint/config";
+
+const obsidianRecommended = obsidianmd.configs.recommended
+  .filter((config) => {
+    if (!Array.isArray(config.files) || config.files.length !== 1) {
+      return true;
+    }
+    return config.files[0] !== "package.json";
+  })
+  .map((config) => {
+    const hasObsidianRules = Object.keys(config.rules ?? {}).some((ruleName) =>
+      ruleName.startsWith("obsidianmd/")
+    );
+    if (!config.files && hasObsidianRules) {
+      return {
+        ...config,
+        files: ["src/**/*.ts", "tests/**/*.ts"],
+      };
+    }
+    return config;
+  });
 
 const restrictedRuntimeSyntax = [
   {
@@ -26,37 +47,40 @@ export default defineConfig([
   {
     ignores: ["dist/**", "node_modules/**"],
   },
-  js.configs.recommended,
+  {
+    plugins: {
+      json,
+    },
+  },
+  {
+    languageOptions: {
+      globals: {
+        ...globals.browser,
+        requestUrl: "readonly",
+        Buffer: "readonly",
+      },
+      parserOptions: {
+        projectService: {
+          allowDefaultProject: ["eslint.config.js", "manifest.json", "vitest.config.ts"],
+        },
+        tsconfigRootDir: import.meta.dirname,
+        extraFileExtensions: [".json"],
+      },
+    },
+  },
+  ...obsidianRecommended,
+  {
+    files: ["**/*.json"],
+    language: "json/json",
+    rules: json.configs.recommended.rules,
+  },
   ...tseslint.configs.recommendedTypeChecked.map((config) => ({
     ...config,
     files: ["src/**/*.ts", "tests/**/*.ts"],
   })),
   {
     files: ["src/**/*.ts", "tests/**/*.ts"],
-    languageOptions: {
-      parserOptions: {
-        project: "./tsconfig.json",
-      },
-      globals: {
-        window: "readonly",
-        requestUrl: "readonly",
-        Buffer: "readonly",
-        console: "readonly",
-        crypto: "readonly",
-        navigator: "readonly",
-        setTimeout: "readonly",
-        setInterval: "readonly",
-        clearTimeout: "readonly",
-        clearInterval: "readonly",
-      },
-    },
-    plugins: {
-      tsdoc,
-    },
     rules: {
-      "no-throw-literal": "off",
-      "no-eval": "error",
-      "no-implied-eval": "error",
       "@typescript-eslint/consistent-type-imports": "error",
       "@typescript-eslint/no-floating-promises": "error",
       "@typescript-eslint/no-misused-promises": "error",
@@ -66,7 +90,12 @@ export default defineConfig([
       ],
       "@typescript-eslint/only-throw-error": "error",
       "@typescript-eslint/switch-exhaustiveness-check": "error",
-      "tsdoc/syntax": "error",
+    },
+  },
+  {
+    files: ["**/*.json", "scripts/**/*.mjs", "eslint.config.js"],
+    rules: {
+      "obsidianmd/no-plugin-as-component": "off",
     },
   },
   {
@@ -84,7 +113,19 @@ export default defineConfig([
     },
   },
   {
+    files: ["src/core/conflict-action-runner.ts", "src/core/sync-engine.ts"],
+    rules: {
+      // `FileManager.trashFile()` would require minAppVersion 1.6.6.
+      "obsidianmd/prefer-file-manager-trash-file": "off",
+    },
+  },
+  {
     files: ["tests/**/*.ts"],
+    languageOptions: {
+      globals: {
+        ...globals.node,
+      },
+    },
     rules: {
       "no-console": "off",
       "@typescript-eslint/require-await": "off",
@@ -94,19 +135,21 @@ export default defineConfig([
       "@typescript-eslint/no-unsafe-call": "off",
       "@typescript-eslint/no-unsafe-member-access": "off",
       "@typescript-eslint/no-unsafe-return": "off",
+      "obsidianmd/prefer-active-doc": "off",
+      "obsidianmd/prefer-active-window-timers": "off",
     },
   },
   {
-    files: ["scripts/**/*.mjs"],
+    files: ["scripts/**/*.mjs", "eslint.config.js", "vitest.config.ts"],
     languageOptions: {
       ecmaVersion: "latest",
       sourceType: "module",
       globals: {
-        console: "readonly",
-        process: "readonly",
+        ...globals.node,
       },
     },
     rules: {
+      "import/no-nodejs-modules": "off",
       "no-console": "off",
     },
   },

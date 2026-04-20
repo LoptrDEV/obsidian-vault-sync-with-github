@@ -8,7 +8,7 @@ export default defineConfig({
   },
   resolve: {
     alias: {
-      obsidian: resolve(__dirname, "node_modules/obsidian/obsidian.d.ts"),
+      obsidian: resolve(import.meta.dirname, "node_modules/obsidian/obsidian.d.ts"),
     },
   },
 });

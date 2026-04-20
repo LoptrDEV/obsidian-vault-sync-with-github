@@ -62,7 +62,10 @@ if (expected && manifest.version !== expected) {
 
 if (versions) {
   const mappedMinAppVersion = versions[manifest.version];
-  if (mappedMinAppVersion && mappedMinAppVersion !== manifest.minAppVersion) {
+  if (!mappedMinAppVersion) {
+    throw new Error(`versions.json is missing an entry for ${manifest.version}`);
+  }
+  if (mappedMinAppVersion !== manifest.minAppVersion) {
     throw new Error(
       `versions.json maps ${manifest.version} to ${mappedMinAppVersion}, expected ${manifest.minAppVersion}`,
     );

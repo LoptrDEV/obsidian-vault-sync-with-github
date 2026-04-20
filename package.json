@@ -1,34 +1,48 @@
 {
-  "name": "obsidian-vault-sync-with-github",
+  "name": "vault-sync-with-github",
   "version": "1.1.0",
+  "description": "Bidirectional vault sync for Obsidian with GitHub.",
+  "author": "Loptr",
+  "license": "MIT",
+  "homepage": "https://github.com/LoptrDEV/obsidian-vault-sync-with-github#readme",
+  "bugs": {
+    "url": "https://github.com/LoptrDEV/obsidian-vault-sync-with-github/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/LoptrDEV/obsidian-vault-sync-with-github.git"
+  },
   "type": "module",
   "scripts": {
     "build": "npm run validate && node scripts/build.mjs",
     "dev": "node scripts/build.mjs --watch",
     "validate": "node scripts/validate-manifest.mjs && node scripts/check-version-sync.mjs",
     "typecheck": "tsc --noEmit && tsc -p tsconfig.scripts.json --noEmit",
-    "lint": "eslint \"src/**/*.ts\" \"tests/**/*.ts\" \"scripts/**/*.mjs\" && stylelint \"styles.css\"",
+    "lint": "eslint src tests scripts eslint.config.js vitest.config.ts",
     "governance:check": "npm run validate && node scripts/check-readme-disclosures.mjs",
     "release:preflight": "npm run governance:check && node scripts/check-release-assets.mjs",
+    "submission:preflight": "npm run release:preflight && node scripts/check-community-submission.mjs",
     "ci": "npm run governance:check && npm run typecheck && npm run lint && npm test && npm run build && npm run release:preflight",
+    "deps:outdated": "node scripts/report-outdated-packages.mjs",
+    "deps:audit": "npm audit",
+    "deps:audit:prod": "npm audit --omit=dev",
+    "deps:update": "npm update",
+    "deps:review": "npm run deps:outdated && npm run deps:audit && npm run deps:audit:prod",
     "test": "vitest run",
     "test:watch": "vitest"
   },
   "devDependencies": {
-    "@eslint/compat": "^2.0.0",
-    "@eslint/js": "^9.39.2",
-    "@eslint/json": "^0.14.0",
-    "@types/node": "^20.12.12",
-    "@typescript-eslint/parser": "^8.52.0",
-    "esbuild": "^0.21.5",
-    "eslint": "^9.39.2",
-    "eslint-plugin-obsidianmd": "^0.1.9",
-    "eslint-plugin-tsdoc": "^0.4.0",
-    "obsidian": "^1.11.4",
-    "stylelint": "^16.26.1",
-    "stylelint-config-standard": "^39.0.1",
-    "typescript": "^5.9.3",
-    "typescript-eslint": "^8.52.0",
-    "vitest": "^1.6.0"
+    "@eslint/js": "^9.39.4",
+    "@eslint/json": "^1.2.0",
+    "@types/node": "^24.12.2",
+    "@typescript-eslint/utils": "^8.58.2",
+    "esbuild": "^0.28.0",
+    "eslint": "^9.39.4",
+    "eslint-plugin-obsidianmd": "^0.2.4",
+    "globals": "^17.5.0",
+    "obsidian": "^1.12.3",
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.58.2",
+    "vitest": "^4.1.4"
   }
 }

@@ -9,16 +9,18 @@ export class FakeTFile extends TFile {
   override path: string;
   override stat: { ctime: number; mtime: number; size: number };
 
-  constructor(path: string, data: Uint8Array) {
+  constructor(path: string, data: Uint8Array, mtime: number, ctime = mtime) {
     super();
     this.path = path;
-    this.stat = { ctime: Date.now(), mtime: Date.now(), size: data.length };
+    this.stat = { ctime, mtime, size: data.length };
   }
 }
 
 export class FakeVault {
+  configDir = "vault-config";
   files = new Map<string, Stored>();
   folders = new Set<string>();
+  private timestampCounter = 1;
   adapter = {
     list: async (path: string) => this.list(path),
     remove: async (path: string) => {
@@ -60,13 +62,21 @@ export class FakeVault {
   async createBinary(path: string, data: Uint8Array): Promise<void> {
     const normalized = this.normalize(path);
     this.ensureParentFolders(normalized);
-    this.files.set(normalized, { file: new FakeTFile(normalized, data), data });
+    const timestamp = this.nextTimestamp();
+    this.files.set(normalized, {
+      file: new FakeTFile(normalized, data, timestamp),
+      data,
+    });
   }
 
   async modifyBinary(file: TFile, data: Uint8Array): Promise<void> {
     const path = (file as FakeTFile).path;
-    if (this.files.has(path)) {
-      this.files.set(path, { file: new FakeTFile(path, data), data });
+    const existing = this.files.get(path);
+    if (existing) {
+      this.files.set(path, {
+        file: new FakeTFile(path, data, this.nextTimestamp(), existing.file.stat.ctime),
+        data,
+      });
     }
   }
 
@@ -76,6 +86,10 @@ export class FakeVault {
 
   async trashFile(file: TFile): Promise<void> {
     this.files.delete((file as FakeTFile).path);
+  }
+
+  async trash(file: TFile, _system: boolean): Promise<void> {
+    await this.trashFile(file);
   }
 
   async rename(file: TFile, newPath: string): Promise<void> {
@@ -88,7 +102,15 @@ export class FakeVault {
 
     this.files.delete(path);
     this.ensureParentFolders(normalized);
-    this.files.set(normalized, { file: new FakeTFile(normalized, entry.data), data: entry.data });
+    this.files.set(normalized, {
+      file: new FakeTFile(
+        normalized,
+        entry.data,
+        this.nextTimestamp(),
+        entry.file.stat.ctime
+      ),
+      data: entry.data,
+    });
   }
 
   async createFolder(path: string): Promise<void> {
@@ -99,6 +121,12 @@ export class FakeVault {
 
   private normalize(path: string): string {
     return normalizePath(path);
+  }
+
+  private nextTimestamp(): number {
+    const timestamp = this.timestampCounter;
+    this.timestampCounter += 1;
+    return timestamp;
   }
 
   private ensureParentFolders(path: string): void {

@@ -248,8 +248,11 @@ describe("integration sync", () => {
     client.markChanged("note.md");
 
     await engine.sync({ ...baseConfig, conflictPolicy: "manual" });
+    await vi.waitFor(async () => {
+      const conflicts = await stateStore.loadConflicts();
+      expect(conflicts.length).toBe(1);
+    });
     const conflicts = await stateStore.loadConflicts();
-    expect(conflicts.length).toBe(1);
 
     const { ConflictActionRunner } = await import("../src/core/conflict-action-runner");
     const runner = new ConflictActionRunner(app as any, client as any);

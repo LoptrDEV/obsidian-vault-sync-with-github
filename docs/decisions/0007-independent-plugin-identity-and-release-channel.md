@@ -14,7 +14,7 @@ Continuing to ship under the inherited upstream plugin identity would blur prove
 Adopt the following independent-line baseline:
 
 - treat this repository as an independent continuation that started as a fork of the upstream project
-- ship under a distinct plugin identity in `manifest.json`
+- ship under the distinct plugin ID `vault-sync-with-github` and the display name `Vault Sync with GitHub` in `manifest.json`
 - use this repository's maintainer/release identity for future releases
 - keep explicit attribution to the upstream project in README and related docs
 - maintain `versions.json` in the repository root as part of release readiness for an independent Obsidian plugin line

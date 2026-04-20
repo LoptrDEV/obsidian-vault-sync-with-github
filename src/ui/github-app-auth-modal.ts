@@ -71,7 +71,7 @@ export class GitHubAppAuthModal extends Modal {
 
         if (result.status === "success") {
           await this.authManager.completeDeviceFlow(result.token);
-          new Notice("GitHub App connected.");
+          new Notice("GitHub app connected.");
           this.onConnected?.();
           this.close();
           return;
@@ -111,7 +111,7 @@ export class GitHubAppAuthModal extends Modal {
     const { contentEl } = this;
     contentEl.empty();
 
-    contentEl.createEl("h2", { text: "Connect GitHub App" });
+    contentEl.createEl("h2", { text: "Connect GitHub app" });
     contentEl.createEl("p", {
       text: "Open GitHub in your browser, enter the device code, and come back to Obsidian. The plugin keeps polling automatically.",
     });
@@ -138,7 +138,11 @@ export class GitHubAppAuthModal extends Modal {
       const actions = card.createDiv({ cls: "github-api-sync-auth-actions" });
       const openButton = actions.createEl("button", { text: "Open GitHub" });
       openButton.onclick = () => {
-        window.open(this.session?.verificationUri ?? "https://github.com/login/device", "_blank", "noopener");
+        activeWindow.open(
+          this.session?.verificationUri ?? "https://github.com/login/device",
+          "_blank",
+          "noopener"
+        );
       };
 
       const copyCodeButton = actions.createEl("button", { text: "Copy code" });
@@ -197,7 +201,7 @@ export class GitHubAppAuthModal extends Modal {
     }
 
     try {
-      await window.navigator.clipboard.writeText(text);
+      await activeWindow.navigator.clipboard.writeText(text);
       new Notice(successMessage);
     } catch {
       new Notice("Clipboard access failed.");
@@ -209,6 +213,6 @@ export class GitHubAppAuthModal extends Modal {
   }
 
   private async sleep(ms: number): Promise<void> {
-    await new Promise((resolve) => window.setTimeout(resolve, ms));
+    await new Promise((resolve) => activeWindow.setTimeout(resolve, ms));
   }
 }

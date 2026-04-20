@@ -1,4 +1,4 @@
-# Obsidian Vault Sync with GitHub
+# Vault Sync with GitHub
 
 An Obsidian plugin for bidirectional vault sync with GitHub, without requiring a local Git client.
 
@@ -21,7 +21,7 @@ It now carries its own plugin identity, release channel, GitHub App ownership, a
 
 That matters because the repo differs from upstream in ways that affect users and reviewers directly:
 
-- it ships under the independent plugin ID `obsidian-vault-sync-with-github`
+- it ships under the independent plugin ID `vault-sync-with-github`
 - it uses the maintainer-owned shared GitHub App `obsidian-vault-sync-with-github`
 - it includes device-flow auth, installed-repository discovery, token-refresh handling, and a separate local auth-state surface
 - it adds preview-first destructive-sync approval, sync health, and baseline repair flows
@@ -76,6 +76,7 @@ The built-in shared app should have:
 ## GitHub App setup
 
 The plugin ships with the shared public GitHub App [`obsidian-vault-sync-with-github`](https://github.com/apps/obsidian-vault-sync-with-github), so end users do not need to copy a client ID or install URL into Obsidian.
+The app keeps its existing public GitHub name even though the plugin ID is now `vault-sync-with-github`.
 Its public client metadata is bundled directly into the plugin, including the client ID `Iv23limhVv4qHkdrM8PN`.
 
 That shared app is expected to have:
@@ -175,13 +176,13 @@ Yes — you can test this plugin locally without submitting to the Obsidian comm
 2. copy `dist/main.js`, `dist/manifest.json`, and optional `dist/styles.css` into a local Obsidian plugin folder
 3. enable the plugin in Obsidian (Settings → Community Plugins)
 
-Use the folder name `obsidian-vault-sync-with-github` for this independent plugin line. If you previously tested either the upstream plugin under `github-api-sync` or an earlier local build of this plugin line under `obsidian-github-api-sync`, remove or disable that older local install first so the plugin identities do not compete in the same vault.
+Use the folder name `vault-sync-with-github` for this independent plugin line. If you previously tested either the upstream plugin under `github-api-sync`, an earlier local fork under `obsidian-github-api-sync`, or a pre-submission build of this independent line under `obsidian-vault-sync-with-github`, remove or disable that older local install first so the plugin identities do not compete in the same vault.
 
 If you want to keep existing plugin settings while moving between plugin IDs:
 
 1. close or reload Obsidian so the old plugin is not actively writing state
-2. copy the old `data.json` from `.obsidian/plugins/github-api-sync/` or `.obsidian/plugins/obsidian-github-api-sync/`
-3. place that file at `.obsidian/plugins/obsidian-vault-sync-with-github/data.json`
+2. copy the old `data.json` from `.obsidian/plugins/github-api-sync/`, `.obsidian/plugins/obsidian-github-api-sync/`, or `.obsidian/plugins/obsidian-vault-sync-with-github/`
+3. place that file at `.obsidian/plugins/vault-sync-with-github/data.json`
 4. start Obsidian again and verify the repository, auth state, and sync health
 
 ## Release process
@@ -194,6 +195,7 @@ Start here for non-trivial work:
 
 - `AGENTS.md`
 - `docs/coding-standards.md`
+- `docs/dependency-management.md`
 - `docs/architecture.md`
 - `docs/security-model.md`
 - `docs/testing.md`

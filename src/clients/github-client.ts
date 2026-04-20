@@ -547,7 +547,7 @@ export class GitHubApiClient implements GitHubClient {
   }
 
   private async sleep(ms: number): Promise<void> {
-    await new Promise((resolve) => window.setTimeout(resolve, ms));
+    await new Promise((resolve) => activeWindow.setTimeout(resolve, ms));
   }
 
   private isEmptyRepoError(error: unknown): boolean {

@@ -34,23 +34,23 @@ export class SettingsView extends PluginSettingTab {
     new Setting(containerEl).setHeading().setName("GitHub API sync");
 
     new Setting(containerEl)
-      .setName("Shared GitHub App")
+      .setName("Shared GitHub app")
       .setDesc(
-        `Uses the built-in public GitHub App ${SHARED_GITHUB_APP.name} for a device-flow login that works on desktop and mobile.`
+        `Uses the built-in public GitHub app ${SHARED_GITHUB_APP.name} for a device-flow login that works on desktop and mobile.`
       )
       .addButton((button) =>
         button.setButtonText("View app").onClick(() => {
-          window.open(SHARED_GITHUB_APP.publicUrl, "_blank", "noopener");
+          activeWindow.open(SHARED_GITHUB_APP.publicUrl, "_blank", "noopener");
         })
       )
       .addButton((button) =>
         button.setButtonText("Install app").onClick(() => {
-          window.open(SHARED_GITHUB_APP.installUrl, "_blank", "noopener");
+          activeWindow.open(SHARED_GITHUB_APP.installUrl, "_blank", "noopener");
         })
       );
 
     new Setting(containerEl)
-      .setName("GitHub App connection")
+      .setName("GitHub app connection")
       .setDesc(this.describeGitHubAppStatus(authState))
       .addButton((button) =>
         button
@@ -79,7 +79,7 @@ export class SettingsView extends PluginSettingTab {
       new Setting(containerEl)
         .setName("Repository access")
         .setDesc(
-          "No repositories are visible through the shared GitHub App yet. Install the app on a repository or refresh the repository list."
+          "No repositories are visible through the shared GitHub app yet. Install the app on a repository or refresh the repository list."
         )
         .addButton((button) =>
           button.setButtonText("Refresh list").onClick(() => {
@@ -100,9 +100,9 @@ export class SettingsView extends PluginSettingTab {
             ? `Syncing ${selectedRepository.fullName} via ${selectedRepository.accountLogin}. ${
                 availableRepositories.length === 1
                   ? "Only one repository is available and it was selected automatically."
-                  : "Choose from repositories available through the installed shared GitHub App."
+                  : "Choose from repositories available through the installed shared GitHub app."
               }`
-            : "Choose a repository from the installed shared GitHub App to fill owner and repo automatically."
+            : "Choose a repository from the installed shared GitHub app to fill owner and repo automatically."
         )
         .addDropdown((dropdown) => {
           if (availableRepositories.length > 1 && !selectedRepository) {
@@ -198,10 +198,10 @@ export class SettingsView extends PluginSettingTab {
     if (this.plugin.settings.repoScopeMode === "subfolder") {
       new Setting(containerEl)
         .setName("Remote sync root path")
-        .setDesc("Used when Remote sync root is 'Subfolder only' (for example vault).")
+        .setDesc("Used when syncing into a dedicated remote subfolder (for example vault).")
         .addText((text) =>
           text
-            .setPlaceholder("vault")
+            .setPlaceholder("Vault")
             .setValue(this.plugin.settings.repoSubfolder)
             .onChange((value) => {
               void (async () => {
@@ -230,12 +230,12 @@ export class SettingsView extends PluginSettingTab {
     new Setting(containerEl)
       .setName("Ignore patterns")
       .setDesc("Comma-separated list of ignore patterns.")
-      .addTextArea((text) =>
-        text
-          .setPlaceholder(".git/")
-          .setValue(this.plugin.settings.ignorePatterns.join(", "))
-          .onChange((value) => {
-            void (async () => {
+        .addTextArea((text) =>
+          text
+            .setPlaceholder(".git")
+            .setValue(this.plugin.settings.ignorePatterns.join(", "))
+            .onChange((value) => {
+              void (async () => {
               this.plugin.settings.ignorePatterns = value
                 .split(",")
                 .map((entry) => entry.trim())
@@ -389,7 +389,7 @@ export class SettingsView extends PluginSettingTab {
 
   private describeGitHubAppStatus(authState: GitHubAppAuthState | null): string {
     if (!authState) {
-      return `No GitHub App login is stored on this device yet. The plugin uses ${SHARED_GITHUB_APP.name} by default.`;
+      return `No GitHub app login is stored on this device yet. The plugin uses ${SHARED_GITHUB_APP.name} by default.`;
     }
 
     const accessExpiry = authState.accessTokenExpiresAt
@@ -400,9 +400,9 @@ export class SettingsView extends PluginSettingTab {
       case "connected":
         return `Connected as ${authState.githubUserLogin || "GitHub user"}. Access token refreshes automatically and is currently valid until ${accessExpiry}.`;
       case "refreshing":
-        return `Refreshing GitHub App login for ${authState.githubUserLogin || "GitHub user"}...`;
+        return `Refreshing GitHub app login for ${authState.githubUserLogin || "GitHub user"}...`;
       case "reauth_required":
-        return "Stored GitHub App tokens can no longer be refreshed. Reconnect to continue syncing.";
+        return "Stored GitHub app tokens can no longer be refreshed. Reconnect to continue syncing.";
       case "disconnected":
       default:
         return "No GitHub App login is active.";

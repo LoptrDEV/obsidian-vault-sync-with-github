@@ -19,12 +19,12 @@ describe("LocalVaultIndexer", () => {
 
   it("applies ignore patterns", async () => {
     const vault = new FakeVault();
-    await vault.createBinary(".obsidian/config", toBuffer("x"));
+    await vault.createBinary(`${vault.configDir}/config`, toBuffer("x"));
     await vault.createBinary("note.md", toBuffer("y"));
     const app = new FakeApp(vault);
     const indexer = new LocalVaultIndexer(app as any);
 
-    const index = await indexer.scan("", [".obsidian/"]);
+    const index = await indexer.scan("", [`${vault.configDir}/`]);
     expect(Object.keys(index)).toEqual(["note.md"]);
   });
 

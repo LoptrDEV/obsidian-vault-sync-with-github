@@ -5,8 +5,8 @@ Generated from `package.json`, `package-lock.json`, and `.github/workflows/` on 
 ## Summary
 
 - declared npm packages: 12
-- resolved lockfile package entries: 430
-- unique resolved `name@version` packages: 417
+- resolved lockfile package entries: 431
+- unique resolved `name@version` packages: 418
 - runtime network targets are GitHub endpoints only
 
 ## Declared NPM Packages
@@ -15,33 +15,33 @@ Generated from `package.json`, `package-lock.json`, and `.github/workflows/` on 
 | --- | --- | --- | --- |
 | `@eslint/js` | `^9.39.4` | `9.39.4` | devDependency |
 | `@eslint/json` | `^1.2.0` | `1.2.0` | devDependency |
-| `@types/node` | `^20.19.39` | `20.19.39` | devDependency |
+| `@types/node` | `^24.12.2` | `24.12.2` | devDependency |
 | `@typescript-eslint/utils` | `^8.58.2` | `8.58.2` | devDependency |
 | `esbuild` | `^0.28.0` | `0.28.0` | devDependency |
 | `eslint` | `^9.39.4` | `9.39.4` | devDependency |
 | `eslint-plugin-obsidianmd` | `^0.2.4` | `0.2.4` | devDependency |
 | `globals` | `^17.5.0` | `17.5.0` | devDependency |
 | `obsidian` | `^1.12.3` | `1.12.3` | devDependency |
-| `typescript` | `^5.9.3` | `5.9.3` | devDependency |
+| `typescript` | `^6.0.3` | `6.0.3` | devDependency |
 | `typescript-eslint` | `^8.58.2` | `8.58.2` | devDependency |
 | `vitest` | `^4.1.4` | `4.1.4` | devDependency |
 
 ## GitHub Actions Dependencies
 
-- `actions/checkout@v4`
-- `actions/download-artifact@v4`
-- `actions/setup-node@v4`
-- `actions/upload-artifact@v4`
-- `github/codeql-action/analyze@v3`
-- `github/codeql-action/autobuild@v3`
-- `github/codeql-action/init@v3`
+- `actions/checkout@v6`
+- `actions/download-artifact@v8`
+- `actions/setup-node@v6`
+- `actions/upload-artifact@v7`
+- `github/codeql-action/analyze@v4`
+- `github/codeql-action/autobuild@v4`
+- `github/codeql-action/init@v4`
 
 ## External Service Dependencies
 
 - GitHub REST API: `https://api.github.com`
 - GitHub login / device flow: `https://github.com/login/device` and `https://github.com/login/oauth/*`
 - GitHub App metadata / installation pages: `https://github.com/apps/obsidian-vault-sync-with-github`
-- GitHub-hosted CI environment with Node.js 20 for workflow runs
+- GitHub-hosted CI environment with Node.js 24 for workflow runs
 
 ## Full Resolved NPM Package List
 
@@ -131,7 +131,7 @@ Generated from `package.json`, `package-lock.json`, and `.github/workflows/` on 
 @types/json-schema@7.0.15
 @types/json5@0.0.29
 @types/node@20.12.12
-@types/node@20.19.39
+@types/node@24.12.2
 @types/tern@0.23.9
 @typescript-eslint/eslint-plugin@8.58.2
 @typescript-eslint/parser@8.58.2
@@ -445,11 +445,12 @@ typed-array-byte-offset@1.0.4
 typed-array-length@1.0.7
 typescript-eslint@8.58.2
 typescript@5.4.5
-typescript@5.9.3
+typescript@6.0.3
 unbox-primitive@1.1.0
 undici-types@5.26.5
-undici-types@6.21.0
+undici-types@7.16.0
 uri-js@4.4.1
+vault-sync-with-github@1.1.0
 vite@8.0.9
 vitest@4.1.4
 w3c-keyname@2.2.8
