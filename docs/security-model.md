@@ -67,7 +67,7 @@ Using a public GitHub repository for synced notes is a conscious publication dec
 
 ## Telemetry policy
 
-This fork does not allow hidden telemetry or analytics. Any future observability feature must be explicit, documented, opt-in where appropriate, and reviewed as a trust-boundary change.
+This repository does not allow hidden telemetry or analytics. Any future observability feature must be explicit, documented, opt-in where appropriate, and reviewed as a trust-boundary change.
 
 ## Release and workflow policy
 

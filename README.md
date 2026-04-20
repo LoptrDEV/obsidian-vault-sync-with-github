@@ -5,14 +5,30 @@ An Obsidian plugin for bidirectional vault sync with GitHub, without requiring a
 ## Status
 
 This repository is an independent continuation of the upstream `FreezingGod/obsidian-github-api-sync` project.
-It started as a fork, but it now ships under its own plugin identity and release channel. The current identity decision is recorded in [ADR-0007](docs/decisions/0007-independent-plugin-identity-and-release-channel.md).
+It started as a fork, but it now ships under its own plugin identity and release channel and is maintained by Loptr. The current identity decision is recorded in [ADR-0007](docs/decisions/0007-independent-plugin-identity-and-release-channel.md).
 
 ## Relationship To Upstream
 
-- this project started as a fork of `FreezingGod/obsidian-github-api-sync`
+- thanks to `FreezingGod` for creating `obsidian-github-api-sync` and publishing the original foundation this project builds on
+- this repository started as a fork of `FreezingGod/obsidian-github-api-sync`
 - upstream provenance remains credited in this repository and its history
-- this repository now follows its own roadmap, release process, and maintainer decisions
-- focused fixes that are still broadly useful upstream should be proposed back as small, reviewable changes instead of as giant fork-sync PRs
+- focused fixes that are still broadly useful upstream should still be proposed back as small, reviewable changes
+
+## Why This Is Maintained Separately
+
+This repository is no longer just a convenience fork with a couple of local commits on top.
+It now carries its own plugin identity, release channel, GitHub App ownership, auth flow, safety UX, and repository governance.
+
+That matters because the repo differs from upstream in ways that affect users and reviewers directly:
+
+- it ships under the independent plugin ID `obsidian-vault-sync-with-github`
+- it uses the maintainer-owned shared GitHub App `obsidian-vault-sync-with-github`
+- it includes device-flow auth, installed-repository discovery, token-refresh handling, and a separate local auth-state surface
+- it adds preview-first destructive-sync approval, sync health, and baseline repair flows
+- it maintains its own documentation, release checks, and public-repo security posture
+
+Because those changes are broader than a small upstream patch series, this repository is maintained as its own line.
+When a fix is still narrowly useful upstream, it is better sent back as a focused follow-up than bundled into the full downstream delta.
 
 ## What the plugin does
 
@@ -44,7 +60,7 @@ GitHub App auth stores expiring access and refresh tokens locally inside plugin 
 
 ### Telemetry
 
-This fork does not define telemetry or analytics as an allowed feature. If that ever changes, it requires an ADR, explicit opt-in design, and disclosure updates.
+This repository does not define telemetry or analytics as an allowed feature. If that ever changes, it requires an ADR, explicit opt-in design, and disclosure updates.
 
 ### Mobile support
 
@@ -59,7 +75,8 @@ The built-in shared app should have:
 
 ## GitHub App setup
 
-The plugin ships with the shared public GitHub App [`obsidian-github-api-sync-app`](https://github.com/apps/obsidian-github-api-sync-app), so end users do not need to copy a client ID or install URL into Obsidian.
+The plugin ships with the shared public GitHub App [`obsidian-vault-sync-with-github`](https://github.com/apps/obsidian-vault-sync-with-github), so end users do not need to copy a client ID or install URL into Obsidian.
+Its public client metadata is bundled directly into the plugin, including the client ID `Iv23limhVv4qHkdrM8PN`.
 
 That shared app is expected to have:
 

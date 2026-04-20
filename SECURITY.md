@@ -2,18 +2,17 @@
 
 ## Supported versions
 
-This fork has not published an independent stable release line yet.
+This repository is maintained as an independent continuation of the upstream project.
+There are currently no tagged releases published from this repository.
 
 | Version | Supported |
 | --- | --- |
 | `main` | :white_check_mark: active development |
-| tagged fork releases before an explicit fork policy decision | :x: not yet supported as a stable channel |
+| tagged releases | :x: none published yet |
 
 ## Reporting a vulnerability
 
 Preferred channel: **GitHub Private Vulnerability Reporting** for this repository.
-
-Maintainer action: enable private vulnerability reporting in the repository settings before the first independent fork release.
 
 If private reporting is not yet enabled:
 
