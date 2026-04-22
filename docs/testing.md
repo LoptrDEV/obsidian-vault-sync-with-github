@@ -29,6 +29,9 @@ Use unit tests for:
 - auth refresh, repository discovery, and log-redaction behavior
 - compare overflow, tree truncation fallback, and conditional GET handling
 - empty-folder placeholder handling for remote `.gitkeep` directories
+- blocked-path / oversize-file deferral
+- rewritten-history diagnostics and retry-once replan behavior
+- text conflict artifact generation for Markdown/plaintext `keepBoth` cases
 
 ### 2. Integration-style tests
 
@@ -38,6 +41,8 @@ Use integration-style tests for:
 - end-to-end planner/executor behavior across multiple components
 - regression cases involving rename, delete, conflict, and baseline handling
 - preview generation, destructive-delete approval, and baseline repair flows
+- interrupted sync-session recovery across app restarts
+- partial-failure scenarios where remote writes succeed before local catch-up is resumed
 
 ### 3. Manual smoke tests for release candidates
 
@@ -56,6 +61,7 @@ Release smoke should verify at minimum:
 - a sync run can complete against a test repository
 - the first sync into a newly created empty GitHub test repository succeeds
 - local create, update, and delete operations propagate in the expected direction when the other side is unchanged
+- when interval sync is enabled, local vault edits debounce into a sync attempt before the next periodic tick
 - `keepBoth` conflict copies are created locally and get uploaded on a later sync as new files
 - GitHub App device-flow login can complete on at least one desktop path and one mobile path when that auth mode is enabled
 - stored GitHub App auth refreshes without asking the user to log in again when the token is near expiry

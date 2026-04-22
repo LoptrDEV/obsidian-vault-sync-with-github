@@ -31,6 +31,7 @@ Generated from `package.json`, `package-lock.json`, and `.github/workflows/` on 
 - `actions/checkout@v6`
 - `actions/download-artifact@v8`
 - `actions/setup-node@v6`
+- `actions/attest@v4`
 - `actions/upload-artifact@v7`
 - `github/codeql-action/analyze@v4`
 - `github/codeql-action/autobuild@v4`

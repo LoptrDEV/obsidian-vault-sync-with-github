@@ -90,6 +90,8 @@ Operational rules:
 - large or suspicious local delete sets must surface as a stored preview that requires explicit approval before execution
 - remote comparison fallbacks must prefer correctness over a cheaper but potentially incomplete remote picture
 - sync preview and health records may contain path metadata and should be treated as sensitive local state
+- persisted sync-session state used for interrupted-run recovery is sensitive local metadata and should not be exposed casually
+- blocked or unsyncable local files must remain explicitly deferred; they must not be mistaken for ordinary user deletes
 - baseline repair is an explicit user action; ordinary sync should not silently discard the last known baseline when the remote picture looks suspicious
 
 ## Configuration folder policy
@@ -114,5 +116,7 @@ This repository does not allow hidden telemetry or analytics. Any future observa
 
 - default GitHub Actions token permissions should stay minimal
 - write permissions should be granted only to the jobs that need them
+- release workflows should generate signed provenance attestations for shipped assets
+- published releases should be protected by GitHub release immutability where the repository setting is available
 - branch protection / repository rules should require review and passing checks for `main`
 - security reporting should use GitHub private vulnerability reporting when available

@@ -115,6 +115,32 @@ describe("GitHubRemoteIndexer", () => {
     expect(result).toEqual(listTreeResponse);
   });
 
+  it("records a rewritten-history diagnostic when the baseline commit can no longer be compared", async () => {
+    const client = {
+      listTree: vi.fn().mockResolvedValue({
+        index: listTreeResponse,
+        truncated: false,
+        usedTruncatedTreeFallback: false,
+      }),
+      compareCommits: vi
+        .fn()
+        .mockRejectedValue(new Error("GitHub API error 404: {\"message\":\"Not Found\"}")),
+      getFile: vi.fn(),
+    };
+
+    const baseline: SyncBaseline = {
+      commitSha: "base",
+      entries: { "a.md": { path: "a.md", sha: "s1" } },
+    };
+
+    const indexer = new GitHubRemoteIndexer(client as any);
+    await indexer.fetchIndex("o", "r", "main", baseline);
+
+    expect(indexer.getLastFetchMeta()?.diagnostics.map((entry) => entry.code)).toContain(
+      "remote_history_rewritten"
+    );
+  });
+
   it("falls back to a full tree fetch when compare paging makes the changed-file list incomplete", async () => {
     const client = {
       listTree: vi.fn().mockResolvedValue({

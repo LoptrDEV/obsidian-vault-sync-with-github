@@ -40,6 +40,10 @@ export class FakeVault {
     return Array.from(this.files.values()).map((entry) => entry.file);
   }
 
+  private normalizeBytes(data: Uint8Array | ArrayBuffer): Uint8Array {
+    return data instanceof Uint8Array ? data : new Uint8Array(data);
+  }
+
   getAbstractFileByPath(path: string): TFile | TFolder | null {
     const normalized = this.normalize(path);
     const stored = this.files.get(normalized);
@@ -59,23 +63,25 @@ export class FakeVault {
     return entry ? entry.data : new Uint8Array();
   }
 
-  async createBinary(path: string, data: Uint8Array): Promise<void> {
+  async createBinary(path: string, data: Uint8Array | ArrayBuffer): Promise<void> {
     const normalized = this.normalize(path);
+    const bytes = this.normalizeBytes(data);
     this.ensureParentFolders(normalized);
     const timestamp = this.nextTimestamp();
     this.files.set(normalized, {
-      file: new FakeTFile(normalized, data, timestamp),
-      data,
+      file: new FakeTFile(normalized, bytes, timestamp),
+      data: bytes,
     });
   }
 
-  async modifyBinary(file: TFile, data: Uint8Array): Promise<void> {
+  async modifyBinary(file: TFile, data: Uint8Array | ArrayBuffer): Promise<void> {
     const path = (file as FakeTFile).path;
     const existing = this.files.get(path);
+    const bytes = this.normalizeBytes(data);
     if (existing) {
       this.files.set(path, {
-        file: new FakeTFile(path, data, this.nextTimestamp(), existing.file.stat.ctime),
-        data,
+        file: new FakeTFile(path, bytes, this.nextTimestamp(), existing.file.stat.ctime),
+        data: bytes,
       });
     }
   }

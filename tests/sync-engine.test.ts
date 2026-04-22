@@ -17,6 +17,11 @@ const makeConfig = (): SyncConfig => ({
   conflictPolicy: "preferLocal",
 });
 
+const emptyScanMeta = {
+  blockedPaths: [],
+  blockedReasons: {},
+};
+
 describe("DefaultSyncEngine", () => {
   it("executes ops in expected order", async () => {
     const vault = new FakeVault();
@@ -94,10 +99,10 @@ describe("DefaultSyncEngine", () => {
 
     const opLogs = logs.filter((entry) => entry.startsWith("Op ok:"));
     expect(opLogs).toEqual([
+      "Op ok: batch_push 2 updates, 2 deletes",
       "Op ok: rename_local old.md -> new.md",
       "Op ok: pull_delete gone.md",
       "Op ok: pull_new remote.md",
-      "Op ok: batch_push 2 updates, 2 deletes",
     ]);
   });
 
@@ -211,7 +216,9 @@ describe("DefaultSyncEngine", () => {
       stateStore as any
     );
 
-    await expect(engine.sync(makeConfig())).rejects.toThrow("Sync failed with 1 errors.");
+    await expect(engine.sync(makeConfig())).rejects.toThrow(
+      "batch_push 1 updates, 0 deletes: Failed to process an update operation: boom"
+    );
     expect(logs.some((entry) => entry.includes("Op failed"))).toBe(true);
   });
 
@@ -989,6 +996,313 @@ describe("DefaultSyncEngine", () => {
       expect.objectContaining({
         lastAction: "repair-baseline",
         lastResult: "repaired",
+      })
+    );
+  });
+
+  it("defers blocked local paths instead of treating them as deletes", async () => {
+    const vault = new FakeVault();
+    const app = new FakeApp(vault);
+
+    const stateStore = {
+      loadBaseline: vi.fn().mockResolvedValue({
+        commitSha: "base",
+        entries: {
+          "large.bin": {
+            path: "large.bin",
+            hash: "hash-large",
+            sha: "sha-large",
+            mtime: 1,
+            size: 99,
+          },
+        },
+      }),
+      saveBaseline: vi.fn(),
+      saveConflicts: vi.fn(),
+      appendLog: vi.fn(),
+      savePreview: vi.fn(),
+      saveHealth: vi.fn(),
+      loadSession: vi.fn().mockResolvedValue(null),
+      saveSession: vi.fn(),
+    };
+
+    const localIndexer = {
+      scan: vi.fn().mockResolvedValue({}),
+      setPreviousBaseline: vi.fn(),
+      setMaxFileSizeMB: vi.fn(),
+      getLastScanMeta: vi.fn().mockReturnValue({
+        blockedPaths: ["large.bin"],
+        blockedReasons: {
+          "large.bin": "Local file exceeds the configured maximum size.",
+        },
+      }),
+    };
+
+    const remoteIndexer = {
+      fetchIndex: vi.fn().mockResolvedValue({
+        "large.bin": { path: "large.bin", sha: "sha-large", size: 99, lastCommitTime: 10 },
+      }),
+      getLastFetchMeta: vi.fn().mockReturnValue(null),
+    };
+
+    const planner = {
+      plan: vi.fn().mockReturnValue({
+        ops: [{ type: "push_delete", path: "large.bin" }],
+        conflicts: [],
+      }),
+    };
+
+    const gitClient = {
+      getCommitInfo: vi.fn().mockResolvedValue({ sha: "head", date: "" }),
+      getCommitTreeSha: vi.fn(),
+      createBlob: vi.fn(),
+      createTree: vi.fn(),
+      createCommit: vi.fn(),
+      updateRef: vi.fn(),
+      getLastRateLimitSnapshot: vi.fn().mockReturnValue(null),
+    };
+
+    const engine = new DefaultSyncEngine(
+      app as any,
+      gitClient as any,
+      localIndexer as any,
+      remoteIndexer as any,
+      planner as any,
+      new DefaultConflictResolver(),
+      stateStore as any
+    );
+
+    await engine.sync(makeConfig());
+
+    expect(gitClient.createCommit).not.toHaveBeenCalled();
+    const preview = stateStore.savePreview.mock.calls[0]?.[0];
+    expect(preview?.diagnostics.map((entry: { code: string }) => entry.code)).toContain(
+      "local_scan_blocked"
+    );
+    const baseline = stateStore.saveBaseline.mock.calls[0]?.[0] as SyncBaseline;
+    expect(baseline.entries["large.bin"]?.blockedReason).toContain("maximum size");
+  });
+
+  it("replans once when the remote branch changes during push", async () => {
+    const vault = new FakeVault();
+    await vault.createBinary("note.md", new Uint8Array([1]));
+    const app = new FakeApp(vault);
+
+    const stateStore = {
+      loadBaseline: vi.fn().mockResolvedValue(null),
+      saveBaseline: vi.fn(),
+      saveConflicts: vi.fn(),
+      appendLog: vi.fn(),
+      savePreview: vi.fn(),
+      saveHealth: vi.fn(),
+      loadSession: vi.fn().mockResolvedValue(null),
+      saveSession: vi.fn(),
+    };
+
+    const localIndexer = {
+      scan: vi.fn().mockResolvedValue({
+        "note.md": { path: "note.md", hash: "hash-note", mtime: 1, size: 1 },
+      }),
+      setPreviousBaseline: vi.fn(),
+      setMaxFileSizeMB: vi.fn(),
+      getLastScanMeta: vi.fn().mockReturnValue(emptyScanMeta),
+    };
+
+    const remoteIndexer = {
+      fetchIndex: vi.fn().mockResolvedValue({}),
+      getLastFetchMeta: vi.fn().mockReturnValue(null),
+    };
+
+    const planner = {
+      plan: vi.fn().mockReturnValue({
+        ops: [{ type: "push_new", path: "note.md" }],
+        conflicts: [],
+      }),
+    };
+
+    const gitClient = {
+      getCommitInfo: vi.fn().mockResolvedValue({ sha: "head", date: "" }),
+      getCommitTreeSha: vi.fn().mockResolvedValue("tree-base"),
+      createBlob: vi.fn().mockResolvedValue("blob-sha"),
+      createTree: vi.fn().mockResolvedValue("tree-new"),
+      createCommit: vi.fn().mockResolvedValue("commit-new"),
+      updateRef: vi
+        .fn()
+        .mockRejectedValueOnce(new Error("409 branch was updated"))
+        .mockResolvedValue(undefined),
+      getLastRateLimitSnapshot: vi.fn().mockReturnValue(null),
+    };
+
+    const engine = new DefaultSyncEngine(
+      app as any,
+      gitClient as any,
+      localIndexer as any,
+      remoteIndexer as any,
+      planner as any,
+      new DefaultConflictResolver(),
+      stateStore as any
+    );
+
+    await engine.sync(makeConfig());
+
+    expect(planner.plan).toHaveBeenCalledTimes(2);
+    expect(gitClient.updateRef).toHaveBeenCalledTimes(2);
+    expect(stateStore.saveHealth).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        lastResult: "success",
+        lastAttemptCount: 2,
+      })
+    );
+  });
+
+  it("recovers an interrupted remote-first session before continuing", async () => {
+    const vault = new FakeVault();
+    await vault.createBinary("note.md", new Uint8Array([1]));
+    const app = new FakeApp(vault);
+
+    const stateStore = {
+      loadBaseline: vi.fn().mockResolvedValue(null),
+      saveBaseline: vi.fn(),
+      saveConflicts: vi.fn(),
+      appendLog: vi.fn(),
+      savePreview: vi.fn(),
+      saveHealth: vi.fn(),
+      loadSession: vi
+        .fn()
+        .mockResolvedValueOnce({
+          id: "session-1",
+          startedAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          stage: "executing_local",
+          owner: "o",
+          repo: "r",
+          branch: "main",
+          plannedOpCount: 1,
+          attempt: 1,
+          localMutationsApplied: false,
+          remoteMutationsApplied: true,
+        })
+        .mockResolvedValue(null),
+      saveSession: vi.fn(),
+    };
+
+    const localIndexer = {
+      scan: vi.fn().mockResolvedValue({
+        "note.md": { path: "note.md", hash: "hash-note", mtime: 1, size: 1 },
+      }),
+      setPreviousBaseline: vi.fn(),
+      setMaxFileSizeMB: vi.fn(),
+      getLastScanMeta: vi.fn().mockReturnValue(emptyScanMeta),
+    };
+
+    const remoteIndexer = {
+      fetchIndex: vi.fn().mockResolvedValue({
+        "note.md": { path: "note.md", sha: "sha-note", size: 1, lastCommitTime: 1 },
+      }),
+      getLastFetchMeta: vi.fn().mockReturnValue(null),
+    };
+
+    const planner = {
+      plan: vi.fn().mockReturnValue({
+        ops: [],
+        conflicts: [],
+      }),
+    };
+
+    const gitClient = {
+      getCommitInfo: vi.fn().mockResolvedValue({ sha: "head", date: "" }),
+      getLastRateLimitSnapshot: vi.fn().mockReturnValue(null),
+    };
+
+    const engine = new DefaultSyncEngine(
+      app as any,
+      gitClient as any,
+      localIndexer as any,
+      remoteIndexer as any,
+      planner as any,
+      new DefaultConflictResolver(),
+      stateStore as any
+    );
+
+    await engine.sync(makeConfig());
+
+    expect(stateStore.saveSession).toHaveBeenCalledWith(null);
+    expect(stateStore.saveHealth).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        lastResult: "success",
+        interruptedRecovery: true,
+      })
+    );
+  });
+
+  it("clears a stale prepared session that never applied remote mutations", async () => {
+    const vault = new FakeVault();
+    const app = new FakeApp(vault);
+
+    const stateStore = {
+      loadBaseline: vi.fn().mockResolvedValue(null),
+      saveBaseline: vi.fn(),
+      saveConflicts: vi.fn(),
+      appendLog: vi.fn(),
+      savePreview: vi.fn(),
+      saveHealth: vi.fn(),
+      loadSession: vi
+        .fn()
+        .mockResolvedValueOnce({
+          id: "session-2",
+          startedAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          stage: "prepared",
+          owner: "o",
+          repo: "r",
+          branch: "main",
+          plannedOpCount: 1,
+          attempt: 1,
+          localMutationsApplied: false,
+          remoteMutationsApplied: false,
+        })
+        .mockResolvedValue(null),
+      saveSession: vi.fn(),
+    };
+
+    const localIndexer = {
+      scan: vi.fn().mockResolvedValue({}),
+      setPreviousBaseline: vi.fn(),
+      setMaxFileSizeMB: vi.fn(),
+      getLastScanMeta: vi.fn().mockReturnValue(emptyScanMeta),
+    };
+
+    const remoteIndexer = {
+      fetchIndex: vi.fn().mockResolvedValue({}),
+      getLastFetchMeta: vi.fn().mockReturnValue(null),
+    };
+
+    const planner = {
+      plan: vi.fn().mockReturnValue({ ops: [], conflicts: [] }),
+    };
+
+    const gitClient = {
+      getCommitInfo: vi.fn().mockResolvedValue({ sha: "head", date: "" }),
+      getLastRateLimitSnapshot: vi.fn().mockReturnValue(null),
+    };
+
+    const engine = new DefaultSyncEngine(
+      app as any,
+      gitClient as any,
+      localIndexer as any,
+      remoteIndexer as any,
+      planner as any,
+      new DefaultConflictResolver(),
+      stateStore as any
+    );
+
+    await engine.sync(makeConfig());
+
+    expect(stateStore.saveSession).toHaveBeenCalledWith(null);
+    expect(stateStore.saveHealth).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        lastResult: "success",
+        interruptedRecovery: false,
       })
     );
   });

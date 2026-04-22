@@ -1,5 +1,5 @@
 import { normalizePath, type App, type TFile } from "obsidian";
-import type { LocalIndex, SyncBaseline } from "../types/sync-types";
+import type { LocalIndex, LocalIndexScanMeta, SyncBaseline } from "../types/sync-types";
 import type { LocalIndexer } from "../types/interfaces";
 import { isIgnoredPath } from "../utils/path-filter";
 import { runtimeLog } from "../utils/runtime-log";
@@ -8,6 +8,10 @@ export class LocalVaultIndexer implements LocalIndexer {
   private app: App;
   private previousBaseline: SyncBaseline | null = null;
   private maxFileSizeBytes: number = 50 * 1024 * 1024; // 50MB default
+  private lastScanMeta: LocalIndexScanMeta = {
+    blockedPaths: [],
+    blockedReasons: {},
+  };
 
   constructor(app: App) {
     this.app = app;
@@ -18,7 +22,19 @@ export class LocalVaultIndexer implements LocalIndexer {
   }
 
   setMaxFileSizeMB(maxSizeMB: number): void {
+    if (!Number.isFinite(maxSizeMB) || maxSizeMB <= 0) {
+      this.maxFileSizeBytes = 50 * 1024 * 1024;
+      return;
+    }
+
     this.maxFileSizeBytes = maxSizeMB * 1024 * 1024;
+  }
+
+  getLastScanMeta(): LocalIndexScanMeta {
+    return {
+      blockedPaths: [...this.lastScanMeta.blockedPaths],
+      blockedReasons: { ...this.lastScanMeta.blockedReasons },
+    };
   }
 
   async scan(rootPath: string, ignorePatterns: string[]): Promise<LocalIndex> {
@@ -26,6 +42,7 @@ export class LocalVaultIndexer implements LocalIndexer {
     const files = this.app.vault.getFiles();
     const index: LocalIndex = {};
     const skippedFiles: string[] = [];
+    const blockedReasons: Record<string, string> = {};
 
     for (const file of files) {
       if (!this.isUnderRoot(file, normalizedRoot)) {
@@ -39,6 +56,7 @@ export class LocalVaultIndexer implements LocalIndexer {
       // Check file size
       if (file.stat.size > this.maxFileSizeBytes) {
         skippedFiles.push(file.path);
+        blockedReasons[file.path] = `Local file exceeds the configured maximum size of ${(this.maxFileSizeBytes / 1024 / 1024).toFixed(0)}MB.`;
         continue;
       }
 
@@ -56,6 +74,11 @@ export class LocalVaultIndexer implements LocalIndexer {
         `Skipped ${skippedFiles.length} large file(s) exceeding ${(this.maxFileSizeBytes / 1024 / 1024).toFixed(0)}MB.`
       );
     }
+
+    this.lastScanMeta = {
+      blockedPaths: skippedFiles.sort(),
+      blockedReasons,
+    };
 
     return index;
   }

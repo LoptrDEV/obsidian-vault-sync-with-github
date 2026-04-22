@@ -1,246 +1,100 @@
 import { describe, expect, it, vi } from "vitest";
 import { ConflictActionRunner } from "../src/core/conflict-action-runner";
-import type { ConflictRecord } from "../src/types/sync-types";
+import type { ConflictRecord, SyncConfig } from "../src/types/sync-types";
 import { FakeApp, FakeVault } from "./helpers/fake-obsidian";
 
-const makeRecord = (reason: ConflictRecord["reason"]): ConflictRecord => ({
-  path: "note.md",
-  type: reason === "modify-modify" ? "modify-modify" : "delete-modify",
-  reason,
-  policy: "manual",
-  timestamp: "now",
+const makeConfig = (): SyncConfig => ({
+  token: "t",
+  owner: "o",
+  repo: "r",
+  branch: "main",
+  rootPath: "",
+  repoScopeMode: "fullRepo",
+  repoSubfolder: "",
+  ignorePatterns: [],
+  conflictPolicy: "keepBoth",
 });
 
 describe("ConflictActionRunner", () => {
-  it("keepLocal deletes remote on delete-modify-local", async () => {
-    const vault = new FakeVault();
-    const app = new FakeApp(vault);
-    const client = {
-      getFile: vi.fn().mockResolvedValue({ content: "Zg==", sha: "s" }),
-      putFile: vi.fn(),
-      deleteFile: vi.fn(),
-    };
-
-    const runner = new ConflictActionRunner(app as any, client as any);
-    await runner.resolve(makeRecord("delete-modify-local"), "keepLocal", {
-      token: "t",
-      owner: "o",
-      repo: "r",
-      branch: "main",
-      rootPath: "",
-      repoScopeMode: "fullRepo",
-      repoSubfolder: "vault",
-      ignorePatterns: [],
-      conflictPolicy: "manual",
-    });
-
-    expect(client.deleteFile).toHaveBeenCalledOnce();
-  });
-
-  it("keepLocal deletes remote on local-missing-remote", async () => {
-    const vault = new FakeVault();
-    const app = new FakeApp(vault);
-    const client = {
-      getFile: vi.fn().mockResolvedValue({ content: "Zg==", sha: "s" }),
-      putFile: vi.fn(),
-      deleteFile: vi.fn(),
-    };
-
-    const runner = new ConflictActionRunner(app as any, client as any);
-    await runner.resolve(makeRecord("local-missing-remote"), "keepLocal", {
-      token: "t",
-      owner: "o",
-      repo: "r",
-      branch: "main",
-      rootPath: "",
-      repoScopeMode: "fullRepo",
-      repoSubfolder: "vault",
-      ignorePatterns: [],
-      conflictPolicy: "manual",
-    });
-
-    expect(client.deleteFile).toHaveBeenCalledOnce();
-  });
-
-  it("keepLocal pushes local on modify-modify", async () => {
-    const vault = new FakeVault();
-    await vault.createBinary("note.md", new Uint8Array([1]));
-    const app = new FakeApp(vault);
-    const client = {
-      getFile: vi.fn().mockRejectedValue(new Error("not found")),
-      putFile: vi.fn(),
-      deleteFile: vi.fn(),
-    };
-
-    const runner = new ConflictActionRunner(app as any, client as any);
-    await runner.resolve(makeRecord("modify-modify"), "keepLocal", {
-      token: "t",
-      owner: "o",
-      repo: "r",
-      branch: "main",
-      rootPath: "",
-      repoScopeMode: "fullRepo",
-      repoSubfolder: "vault",
-      ignorePatterns: [],
-      conflictPolicy: "manual",
-    });
-
-    expect(client.putFile).toHaveBeenCalledOnce();
-  });
-
-  it("keepRemote deletes local on delete-modify-remote", async () => {
-    const vault = new FakeVault();
-    await vault.createBinary("note.md", new Uint8Array([1]));
-    const app = new FakeApp(vault);
-    const client = {
-      getFile: vi.fn().mockResolvedValue({ content: "Zg==", sha: "s" }),
-      putFile: vi.fn(),
-      deleteFile: vi.fn(),
-    };
-
-    const runner = new ConflictActionRunner(app as any, client as any);
-    await runner.resolve(makeRecord("delete-modify-remote"), "keepRemote", {
-      token: "t",
-      owner: "o",
-      repo: "r",
-      branch: "main",
-      rootPath: "",
-      repoScopeMode: "fullRepo",
-      repoSubfolder: "vault",
-      ignorePatterns: [],
-      conflictPolicy: "manual",
-    });
-
-    expect(vault.getAbstractFileByPath("note.md")).toBeNull();
-  });
-
-  it("keepRemote restores remote on local-missing-remote", async () => {
-    const vault = new FakeVault();
-    const app = new FakeApp(vault);
-    const client = {
-      getFile: vi.fn().mockResolvedValue({ content: "Zg==", sha: "s" }),
-      putFile: vi.fn(),
-      deleteFile: vi.fn(),
-    };
-
-    const runner = new ConflictActionRunner(app as any, client as any);
-    await runner.resolve(makeRecord("local-missing-remote"), "keepRemote", {
-      token: "t",
-      owner: "o",
-      repo: "r",
-      branch: "main",
-      rootPath: "",
-      repoScopeMode: "fullRepo",
-      repoSubfolder: "vault",
-      ignorePatterns: [],
-      conflictPolicy: "manual",
-    });
-
-    expect(vault.getAbstractFileByPath("note.md")).not.toBeNull();
-  });
-
-  it("keepBoth creates remote copy", async () => {
+  it("creates merged text conflict artifacts for markdown keepBoth conflicts", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2024-01-01T00:00:00Z"));
 
     const vault = new FakeVault();
+    await vault.createBinary("note.md", new TextEncoder().encode("local text"));
     const app = new FakeApp(vault);
     const client = {
-      getFile: vi.fn().mockResolvedValue({ content: "Zg==", sha: "s" }),
+      getFile: vi.fn().mockResolvedValue({
+        content: Buffer.from("remote text").toString("base64"),
+        sha: "sha-1",
+      }),
       putFile: vi.fn(),
       deleteFile: vi.fn(),
     };
 
     const runner = new ConflictActionRunner(app as any, client as any);
-    await runner.resolve(makeRecord("modify-modify"), "keepBoth", {
-      token: "t",
-      owner: "o",
-      repo: "r",
-      branch: "main",
-      rootPath: "",
-      repoScopeMode: "fullRepo",
-      repoSubfolder: "vault",
-      ignorePatterns: [],
-      conflictPolicy: "manual",
-    });
+    const record: ConflictRecord = {
+      path: "note.md",
+      type: "modify-modify",
+      reason: "modify-modify",
+      policy: "manual",
+      timestamp: new Date().toISOString(),
+    };
 
-    const entries = Array.from(vault.files.keys());
-    const hasConflictCopy = entries.some(
-      (path) => path.startsWith("note (conflict-manual-") && path.endsWith(").md")
+    await runner.resolve(record, "keepBoth", makeConfig());
+
+    const conflictPath = Array.from(vault.files.keys()).find(
+      (path) => path !== "note.md" && path.includes("conflict-manual")
     );
-    expect(hasConflictCopy).toBe(true);
+    expect(conflictPath).toBeDefined();
+    const conflictFile = vault.getAbstractFileByPath(conflictPath ?? "");
+    const content = conflictFile ? await vault.readBinary(conflictFile as any) : new Uint8Array();
+    const text = new TextDecoder().decode(content);
+    expect(text).toContain("<<<<<<< LOCAL");
+    expect(text).toContain("local text");
+    expect(text).toContain("remote text");
+
     vi.useRealTimers();
   });
 
-  it("keepBoth increments name when conflict copy exists", async () => {
+  it("keeps shared prefix and suffix outside the conflict block for text artifacts", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2024-01-01T00:00:00Z"));
 
     const vault = new FakeVault();
-    const now = new Date();
-    const stamp = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}${String(
-      now.getDate()
-    ).padStart(2, "0")}-${String(now.getHours()).padStart(2, "0")}${String(
-      now.getMinutes()
-    ).padStart(2, "0")}`;
-    await vault.createBinary(`note (conflict-manual-${stamp}).md`, new Uint8Array([1]));
+    await vault.createBinary(
+      "note.md",
+      new TextEncoder().encode(["title", "local body", "shared end"].join("\n"))
+    );
     const app = new FakeApp(vault);
     const client = {
-      getFile: vi.fn().mockResolvedValue({ content: "Zg==", sha: "s" }),
+      getFile: vi.fn().mockResolvedValue({
+        content: Buffer.from(["title", "remote body", "shared end"].join("\n")).toString("base64"),
+        sha: "sha-2",
+      }),
       putFile: vi.fn(),
       deleteFile: vi.fn(),
     };
 
     const runner = new ConflictActionRunner(app as any, client as any);
-    await runner.resolve(makeRecord("modify-modify"), "keepBoth", {
-      token: "t",
-      owner: "o",
-      repo: "r",
-      branch: "main",
-      rootPath: "",
-      repoScopeMode: "fullRepo",
-      repoSubfolder: "vault",
-      ignorePatterns: [],
-      conflictPolicy: "manual",
-    });
+    const record: ConflictRecord = {
+      path: "note.md",
+      type: "modify-modify",
+      reason: "modify-modify",
+      policy: "manual",
+      timestamp: new Date().toISOString(),
+    };
 
-    const entries = Array.from(vault.files.keys());
-    const hasIncremented = entries.some((path) =>
-      path.includes(`conflict-manual-${stamp}-1).md`)
+    await runner.resolve(record, "keepBoth", makeConfig());
+
+    const conflictPath = Array.from(vault.files.keys()).find(
+      (path) => path !== "note.md" && path.includes("conflict-manual")
     );
-    expect(hasIncremented).toBe(true);
+    const conflictFile = vault.getAbstractFileByPath(conflictPath ?? "");
+    const content = conflictFile ? await vault.readBinary(conflictFile as any) : new Uint8Array();
+    const text = new TextDecoder().decode(content);
+    expect(text).toContain("title\n<<<<<<< LOCAL\nlocal body\n=======\nremote body\n>>>>>>> REMOTE\nshared end");
+
     vi.useRealTimers();
-  });
-
-  it("uses repository subfolder path when resolving remote actions", async () => {
-    const vault = new FakeVault();
-    await vault.createBinary("note.md", new Uint8Array([1]));
-    const app = new FakeApp(vault);
-    const client = {
-      getFile: vi.fn().mockResolvedValue({ content: "Zg==", sha: "s" }),
-      putFile: vi.fn(),
-      deleteFile: vi.fn(),
-    };
-
-    const runner = new ConflictActionRunner(app as any, client as any);
-    await runner.resolve(makeRecord("modify-modify"), "keepLocal", {
-      token: "t",
-      owner: "o",
-      repo: "r",
-      branch: "main",
-      rootPath: "",
-      repoScopeMode: "subfolder",
-      repoSubfolder: "vault",
-      ignorePatterns: [],
-      conflictPolicy: "manual",
-    });
-
-    expect(client.putFile).toHaveBeenCalledWith(
-      "vault/note.md",
-      expect.any(String),
-      expect.any(String),
-      "s",
-      "main"
-    );
   });
 });

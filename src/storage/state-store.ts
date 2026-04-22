@@ -2,6 +2,7 @@ import type {
   ConflictRecord,
   SyncBaseline,
   SyncHealthState,
+  SyncSessionState,
   SyncLogEntry,
   SyncPreview,
 } from "../types/sync-types";
@@ -21,6 +22,7 @@ type StoredState = {
   logs: SyncLogEntry[];
   preview: SyncPreview | null;
   health: SyncHealthState | null;
+  session: SyncSessionState | null;
 };
 
 /**
@@ -96,8 +98,19 @@ export class PluginStateStore implements StateStore {
     return state.health;
   }
 
+  async saveSession(session: SyncSessionState | null): Promise<void> {
+    const state = await this.loadFullState();
+    state.session = session;
+    await this.plugin.saveData(this.mergeWithSettings(state));
+  }
+
+  async loadSession(): Promise<SyncSessionState | null> {
+    const state = await this.loadState();
+    return state.session;
+  }
+
   private async loadState(): Promise<
-    Pick<StoredState, "baseline" | "conflicts" | "logs" | "preview" | "health">
+    Pick<StoredState, "baseline" | "conflicts" | "logs" | "preview" | "health" | "session">
   > {
     const raw: unknown = await this.plugin.loadData();
     const state = (raw ?? {}) as Partial<StoredState>;
@@ -107,6 +120,7 @@ export class PluginStateStore implements StateStore {
       logs: state.logs ?? [],
       preview: state.preview ?? null,
       health: state.health ?? null,
+      session: state.session ?? null,
     };
   }
 
@@ -123,6 +137,7 @@ export class PluginStateStore implements StateStore {
       logs: state.logs ?? [],
       preview: state.preview ?? null,
       health: state.health ?? null,
+      session: state.session ?? null,
     };
   }
 
@@ -138,6 +153,7 @@ export class PluginStateStore implements StateStore {
       logs: state.logs,
       preview: state.preview,
       health: state.health,
+      session: state.session,
     };
     // Spread settings back to top level
     if (state.settings) {

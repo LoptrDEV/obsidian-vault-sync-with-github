@@ -31,6 +31,8 @@ export const DEFAULT_SETTINGS: PluginSettings = {
   maxFileSizeMB: 50, // GitHub API limit is 100MB, use 50MB as safe default
 };
 
+const GITHUB_API_MAX_FILE_SIZE_MB = 100;
+
 /**
  * Returns the settings payload that is safe to persist back into plugin data.
  * This intentionally excludes auth/session state, previews, logs, and baseline
@@ -39,7 +41,23 @@ export const DEFAULT_SETTINGS: PluginSettings = {
 export const sanitizeSettingsForPersistence = (
   settings: PluginSettings
 ): PluginSettings => ({
-  ...settings,
+  owner: settings.owner.trim(),
+  repo: settings.repo.trim(),
+  branch: settings.branch.trim() || DEFAULT_SETTINGS.branch,
+  rootPath: settings.rootPath.trim(),
+  repoScopeMode: isRepoScopeMode(settings.repoScopeMode)
+    ? settings.repoScopeMode
+    : DEFAULT_SETTINGS.repoScopeMode,
+  repoSubfolder: settings.repoSubfolder.trim(),
+  ignorePatterns: settings.ignorePatterns
+    .filter((entry): entry is string => typeof entry === "string")
+    .map((entry) => entry.trim())
+    .filter((entry, index, array) => entry.length > 0 && array.indexOf(entry) === index),
+  conflictPolicy: isConflictPolicy(settings.conflictPolicy)
+    ? settings.conflictPolicy
+    : DEFAULT_SETTINGS.conflictPolicy,
+  syncIntervalMinutes: normalizeSyncIntervalMinutes(settings.syncIntervalMinutes),
+  maxFileSizeMB: normalizeMaxFileSizeMB(settings.maxFileSizeMB),
 });
 
 const isRepoScopeMode = (value: unknown): value is PluginSettings["repoScopeMode"] =>
@@ -47,6 +65,26 @@ const isRepoScopeMode = (value: unknown): value is PluginSettings["repoScopeMode
 
 const isConflictPolicy = (value: unknown): value is PluginSettings["conflictPolicy"] =>
   value === "preferLocal" || value === "preferRemote" || value === "keepBoth" || value === "manual";
+
+export const normalizeSyncIntervalMinutes = (value: unknown): number | null => {
+  if (value === null) {
+    return null;
+  }
+
+  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
+    return DEFAULT_SETTINGS.syncIntervalMinutes;
+  }
+
+  return value;
+};
+
+export const normalizeMaxFileSizeMB = (value: unknown): number => {
+  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
+    return DEFAULT_SETTINGS.maxFileSizeMB;
+  }
+
+  return Math.min(value, GITHUB_API_MAX_FILE_SIZE_MB);
+};
 
 /**
  * Extracts the supported settings shape from raw plugin storage while keeping
@@ -81,20 +119,22 @@ export const extractPluginSettings = (data: unknown): PluginSettings | undefined
   }
 
   return {
-    owner: typeof obj.owner === "string" ? obj.owner : DEFAULT_SETTINGS.owner,
-    repo: typeof obj.repo === "string" ? obj.repo : DEFAULT_SETTINGS.repo,
-    branch: typeof obj.branch === "string" ? obj.branch : DEFAULT_SETTINGS.branch,
-    rootPath: typeof obj.rootPath === "string" ? obj.rootPath : DEFAULT_SETTINGS.rootPath,
+    owner: typeof obj.owner === "string" ? obj.owner.trim() : DEFAULT_SETTINGS.owner,
+    repo: typeof obj.repo === "string" ? obj.repo.trim() : DEFAULT_SETTINGS.repo,
+    branch:
+      typeof obj.branch === "string" ? obj.branch.trim() || DEFAULT_SETTINGS.branch : DEFAULT_SETTINGS.branch,
+    rootPath: typeof obj.rootPath === "string" ? obj.rootPath.trim() : DEFAULT_SETTINGS.rootPath,
     repoScopeMode: isRepoScopeMode(obj.repoScopeMode) ? obj.repoScopeMode : DEFAULT_SETTINGS.repoScopeMode,
-    repoSubfolder: typeof obj.repoSubfolder === "string" ? obj.repoSubfolder : DEFAULT_SETTINGS.repoSubfolder,
+    repoSubfolder:
+      typeof obj.repoSubfolder === "string" ? obj.repoSubfolder.trim() : DEFAULT_SETTINGS.repoSubfolder,
     ignorePatterns: Array.isArray(obj.ignorePatterns)
-      ? obj.ignorePatterns.filter((entry): entry is string => typeof entry === "string")
+      ? obj.ignorePatterns
+          .filter((entry): entry is string => typeof entry === "string")
+          .map((entry) => entry.trim())
+          .filter((entry, index, array) => entry.length > 0 && array.indexOf(entry) === index)
       : DEFAULT_SETTINGS.ignorePatterns,
     conflictPolicy: isConflictPolicy(obj.conflictPolicy) ? obj.conflictPolicy : DEFAULT_SETTINGS.conflictPolicy,
-    syncIntervalMinutes:
-      typeof obj.syncIntervalMinutes === "number" || obj.syncIntervalMinutes === null
-        ? obj.syncIntervalMinutes
-        : DEFAULT_SETTINGS.syncIntervalMinutes,
-    maxFileSizeMB: typeof obj.maxFileSizeMB === "number" ? obj.maxFileSizeMB : DEFAULT_SETTINGS.maxFileSizeMB,
+    syncIntervalMinutes: normalizeSyncIntervalMinutes(obj.syncIntervalMinutes),
+    maxFileSizeMB: normalizeMaxFileSizeMB(obj.maxFileSizeMB),
   };
 };

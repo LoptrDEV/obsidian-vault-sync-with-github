@@ -426,6 +426,9 @@ export class GitHubApiClient implements GitHubClient {
 
       const shouldRetry = this.shouldRetry(response.status, response.headers, attempt);
       if (response.status === 409) {
+        if (this.isRepositoryEmptyMessage(response.text)) {
+          throw new Error("Git Repository is empty");
+        }
         throw new Error(`GitHub API conflict (409): ${response.text}`);
       }
 
@@ -589,7 +592,11 @@ export class GitHubApiClient implements GitHubClient {
 
   private isEmptyRepoConflict(error: unknown): boolean {
     const status = this.extractErrorStatus(error);
-    return status === 409;
+    if (status !== 409) {
+      return false;
+    }
+
+    return this.isRepositoryEmptyMessage(this.extractErrorMessage(error));
   }
 
   private extractErrorStatus(error: unknown): number | null {
@@ -623,5 +630,42 @@ export class GitHubApiClient implements GitHubClient {
       }
     }
     return undefined;
+  }
+
+  private extractErrorMessage(error: unknown): string {
+    if (error instanceof Error) {
+      return error.message;
+    }
+
+    if (!error || typeof error !== "object") {
+      return String(error);
+    }
+
+    const obj = error as {
+      message?: unknown;
+      response?: {
+        text?: unknown;
+        data?: unknown;
+      };
+    };
+
+    if (typeof obj.response?.text === "string") {
+      return obj.response.text;
+    }
+
+    if (typeof obj.message === "string") {
+      return obj.message;
+    }
+
+    if (typeof obj.response?.data === "string") {
+      return obj.response.data;
+    }
+
+    return "Unknown GitHub client error";
+  }
+
+  private isRepositoryEmptyMessage(message: string): boolean {
+    const normalized = message.toLowerCase();
+    return normalized.includes("git repository is empty") || normalized.includes("repository is empty");
   }
 }

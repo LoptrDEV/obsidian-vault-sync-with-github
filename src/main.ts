@@ -19,8 +19,11 @@ import { GitHubAuthManager } from "./auth/github-auth-manager";
 import { extractPluginSettings } from "./types/plugin-settings";
 
 export default class GitHubApiSyncPlugin extends Plugin {
+  private static readonly LOCAL_SYNC_DEBOUNCE_MS = 15_000;
+
   settings: PluginSettings = { ...DEFAULT_SETTINGS };
   private syncIntervalId: number | null = null;
+  private localSyncDebounceId: number | null = null;
   private isSyncing = false;
   private syncStatusNotice: Notice | null = null;
   private ribbonIconEl: HTMLElement | null = null;
@@ -93,11 +96,17 @@ export default class GitHubApiSyncPlugin extends Plugin {
       },
     });
 
+    this.registerEvent(this.app.vault.on("create", () => this.queueLocalChangeSync()));
+    this.registerEvent(this.app.vault.on("modify", () => this.queueLocalChangeSync()));
+    this.registerEvent(this.app.vault.on("delete", () => this.queueLocalChangeSync()));
+    this.registerEvent(this.app.vault.on("rename", () => this.queueLocalChangeSync()));
+
     this.scheduleSync();
   }
 
   override onunload(): void {
     this.clearSyncInterval();
+    this.clearLocalSyncDebounce();
   }
 
   async loadSettings(): Promise<void> {
@@ -115,6 +124,7 @@ export default class GitHubApiSyncPlugin extends Plugin {
           logs?: unknown;
           preview?: unknown;
           health?: unknown;
+          session?: unknown;
         }
       | null;
     const persistedSettings = sanitizeSettingsForPersistence(this.settings);
@@ -125,6 +135,7 @@ export default class GitHubApiSyncPlugin extends Plugin {
       logs: existing?.logs ?? [],
       preview: existing?.preview ?? null,
       health: existing?.health ?? null,
+      session: existing?.session ?? null,
       ...persistedSettings,
     });
     this.scheduleSync();
@@ -248,6 +259,25 @@ export default class GitHubApiSyncPlugin extends Plugin {
     if (this.syncIntervalId !== null) {
       activeWindow.clearInterval(this.syncIntervalId);
       this.syncIntervalId = null;
+    }
+  }
+
+  private queueLocalChangeSync(): void {
+    if (this.isSyncing || this.settings.syncIntervalMinutes === null) {
+      return;
+    }
+
+    this.clearLocalSyncDebounce();
+    this.localSyncDebounceId = activeWindow.setTimeout(() => {
+      this.localSyncDebounceId = null;
+      void this.runSync();
+    }, GitHubApiSyncPlugin.LOCAL_SYNC_DEBOUNCE_MS);
+  }
+
+  private clearLocalSyncDebounce(): void {
+    if (this.localSyncDebounceId !== null) {
+      activeWindow.clearTimeout(this.localSyncDebounceId);
+      this.localSyncDebounceId = null;
     }
   }
 

@@ -30,6 +30,7 @@ export type BaselineEntry = {
   mtime?: number;
   size?: number;
   lastCommitTime?: number;
+  blockedReason?: string;
 };
 
 export type SyncBaseline = {
@@ -55,17 +56,26 @@ export type RemoteEntry = {
 export type LocalIndex = Record<string, LocalEntry>;
 export type RemoteIndex = Record<string, RemoteEntry>;
 
+export type LocalIndexScanMeta = {
+  blockedPaths: string[];
+  blockedReasons: Record<string, string>;
+};
+
 export type SyncDiagnosticEntry = {
   code:
     | "remote_compare_failed"
     | "remote_compare_paged"
     | "remote_compare_file_cap"
+    | "remote_history_rewritten"
     | "remote_tree_truncated"
     | "remote_tree_truncated_walk"
     | "mass_remote_delete_conflict"
     | "mass_delete_approval_required"
     | "preview_generated"
-    | "baseline_repaired";
+    | "baseline_repaired"
+    | "local_scan_blocked"
+    | "interrupted_sync_recovered"
+    | "retry_replanned";
   level: "info" | "warn" | "error";
   message: string;
 };
@@ -208,4 +218,22 @@ export type SyncHealthState = {
   authStatus: string;
   diagnostics: SyncDiagnosticEntry[];
   rateLimit: GitHubRateLimitSnapshot | null;
+  lastAttemptCount?: number;
+  blockedPathCount?: number;
+  interruptedRecovery?: boolean;
+  pendingSessionStage?: SyncSessionState["stage"] | null;
+};
+
+export type SyncSessionState = {
+  id: string;
+  startedAt: string;
+  updatedAt: string;
+  stage: "prepared" | "executing_local" | "executing_remote" | "saving";
+  owner: string;
+  repo: string;
+  branch: string;
+  plannedOpCount: number;
+  attempt: number;
+  localMutationsApplied: boolean;
+  remoteMutationsApplied: boolean;
 };

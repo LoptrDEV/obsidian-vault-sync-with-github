@@ -24,6 +24,41 @@ vi.mock("obsidian", () => {
   class Modal {}
   class Plugin {}
   class App {}
+  class PluginSettingTab {
+    containerEl = {
+      empty: () => {},
+      createDiv: () => ({
+        createEl: () => ({}),
+        setText: () => {},
+      }),
+    } as unknown as HTMLElement;
+
+    constructor(_app?: unknown, _plugin?: unknown) {}
+  }
+  class Setting {
+    constructor(_containerEl?: unknown) {}
+    setHeading() {
+      return this;
+    }
+    setName(_name?: string) {
+      return this;
+    }
+    setDesc(_desc?: string) {
+      return this;
+    }
+    addButton(_cb: (button: any) => any) {
+      return this;
+    }
+    addDropdown(_cb: (dropdown: any) => any) {
+      return this;
+    }
+    addText(_cb: (text: any) => any) {
+      return this;
+    }
+    addTextArea(_cb: (text: any) => any) {
+      return this;
+    }
+  }
 
   return {
     activeWindow: mockActiveWindow,
@@ -35,6 +70,8 @@ vi.mock("obsidian", () => {
     Modal,
     Plugin,
     App,
+    PluginSettingTab,
+    Setting,
   };
 });
 

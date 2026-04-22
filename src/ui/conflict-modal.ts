@@ -38,7 +38,15 @@ export class ConflictModal extends Modal {
     const actionWrap = container.createEl("div");
     const keepLocal = actionWrap.createEl("button", { text: "Keep local" });
     const keepRemote = actionWrap.createEl("button", { text: "Keep remote" });
-    const keepBoth = actionWrap.createEl("button", { text: "Keep both" });
+    const keepBoth = actionWrap.createEl("button", {
+      text: entry.path.endsWith(".md") || entry.path.endsWith(".txt") ? "Keep both (merged copy)" : "Keep both",
+    });
+
+    if (entry.path.endsWith(".md") || entry.path.endsWith(".txt")) {
+      actionWrap
+        .createEl("div")
+        .setText("Text conflicts create a merged artifact with conflict markers so both versions stay visible.");
+    }
 
     keepLocal.onclick = () => {
       void (async () => {

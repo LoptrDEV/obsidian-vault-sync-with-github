@@ -38,6 +38,8 @@ When a fix is still narrowly useful upstream, it is better sent back as a focuse
 - supports conflict handling and sync logs
 - supports a configurable remote sync root and an optional local sync root
 - supports sync previews, destructive-delete approval, health diagnostics, and baseline repair commands
+- prefers remote-first execution with persisted sync-session recovery so interrupted runs can be resumed safely on the next attempt
+- defers blocked local files such as oversize attachments instead of treating them as implicit deletes
 - uses a built-in shared GitHub App and can suggest available repositories from the installed app
 - is designed to stay usable on Obsidian desktop and mobile; `manifest.json` leaves mobile enabled with `isDesktopOnly: false`, but each release still needs manual smoke coverage on both
 
@@ -171,11 +173,15 @@ The sync path now uses a preview-first safety model for suspicious delete sets a
 
 - **Preview sync plan** stores a dry-run summary, diagnostics, conflicts, and the exact approval key for the current plan.
 - **Approve destructive sync and run** is required when the current plan would delete a large share of local files or when the remote side appears unexpectedly wiped.
-- **Show sync health** displays the latest preview/sync result plus recent diagnostics such as compare fallbacks, tree truncation fallback, and last seen GitHub rate-limit headers.
+- **Show sync health** displays the latest preview/sync result plus recent diagnostics such as compare fallbacks, rewritten-history detection, blocked local paths, retry/replan attempts, interrupted-session recovery, and last seen GitHub rate-limit headers.
 - **Repair sync baseline** rebuilds the stored baseline from the current local and remote state when an interrupted run or a large refactor leaves the baseline stale.
 - the settings tab includes direct buttons for `Sync now`, `Preview plan`, `Show health`, `Show log`, `Conflicts`, and `Repair baseline`
+- when interval sync is enabled, local vault changes now debounce into an earlier sync attempt instead of waiting only for the next interval tick
 
 Internally, the plugin prefers incremental remote fetches, but falls back to a full remote tree fetch when GitHub's compare or tree APIs may be incomplete.
+If the stored baseline commit can no longer be compared cleanly because the branch was force-pushed or reset, the plugin records a rewritten-history diagnostic and falls back to a full remote tree fetch.
+If a local file cannot be scanned, for example because it exceeds the configured size limit, the planner defers sync operations for that path until it becomes scannable again.
+If the remote branch changes during a push, the plugin automatically rebuilds the plan once and retries.
 Remote empty folders that are represented in GitHub by `.gitkeep` placeholders are preserved locally as empty folders; the plugin does not need to keep the `.gitkeep` file itself visible inside the vault.
 
 The preview modal is designed as a human-readable decision surface rather than a raw dump: it summarizes what will happen, groups the planned changes by category, and exposes direct actions such as refresh, sync now, approve-and-run, and health lookup.

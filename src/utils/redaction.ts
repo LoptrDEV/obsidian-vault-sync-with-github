@@ -1,6 +1,15 @@
 const SENSITIVE_PATTERNS: Array<[RegExp, string]> = [
   [/\bBearer\s+[A-Za-z0-9._-]+\b/gi, "Bearer [REDACTED]"],
+  [
+    /"(access_token|refresh_token|client_secret|token)"\s*:\s*"[^"]*"/gi,
+    "\"$1\":\"[REDACTED]\"",
+  ],
+  [
+    /'(access_token|refresh_token|client_secret|token)'\s*:\s*'[^']*'/gi,
+    "'$1':'[REDACTED]'",
+  ],
   [/\b(access_token|refresh_token|client_secret|token)=([^&\s]+)/gi, "$1=[REDACTED]"],
+  [/\b(access_token|refresh_token|client_secret|token)\s*:\s*([^\s,}]+)/gi, "$1: [REDACTED]"],
   [/\b(gh[pousr]_[A-Za-z0-9_]+)\b/g, "[REDACTED_GITHUB_TOKEN]"],
 ];
 

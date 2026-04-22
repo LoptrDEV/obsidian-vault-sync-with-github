@@ -104,6 +104,24 @@ describe("PluginStateStore", () => {
     expect(logs[0]?.message).toContain("[REDACTED]");
   });
 
+  it("redacts JSON-style and colon-separated secrets from persisted logs", async () => {
+    const plugin = new FakePlugin();
+    const store = new PluginStateStore(plugin as any);
+
+    await store.appendLog({
+      timestamp: "now",
+      level: "error",
+      message:
+        '{"access_token":"abc","refresh_token":"def"} token: xyz client_secret: topsecret',
+    });
+
+    const logs = await store.loadLogs();
+    expect(logs[0]?.message).toContain('"access_token":"[REDACTED]"');
+    expect(logs[0]?.message).toContain('"refresh_token":"[REDACTED]"');
+    expect(logs[0]?.message).toContain("token: [REDACTED]");
+    expect(logs[0]?.message).toContain("client_secret: [REDACTED]");
+  });
+
   it("persists preview and health state alongside other plugin data", async () => {
     const plugin = new FakePlugin();
     await plugin.saveData({ auth: makeAuthState() });

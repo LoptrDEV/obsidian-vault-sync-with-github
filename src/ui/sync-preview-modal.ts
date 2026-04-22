@@ -1,6 +1,7 @@
 import { Modal, Setting } from "obsidian";
 import type GitHubApiSyncPlugin from "../main";
 import type { ConflictRecord, SyncOp, SyncPreview } from "../types/sync-types";
+import { buildPreviewGuidance, describeSyncDiagnostic } from "./sync-status-copy";
 
 type OperationGroup = {
   title: string;
@@ -32,6 +33,7 @@ export class SyncPreviewModal extends Modal {
     this.renderScope(contentEl, preview);
     this.renderSummary(contentEl, preview);
     this.renderDiagnostics(contentEl, preview);
+    this.renderGuidance(contentEl, preview);
     this.renderOperations(contentEl, preview);
     this.renderConflicts(contentEl, preview.conflicts);
   }
@@ -122,9 +124,19 @@ export class SyncPreviewModal extends Modal {
     this.appendBullets(
       section,
       preview.diagnostics.length > 0
-        ? preview.diagnostics.map((entry) => `[${entry.level}] ${entry.message}`)
+        ? preview.diagnostics.map((entry) => describeSyncDiagnostic(entry))
         : ["No warnings or fallbacks were recorded for this preview."]
     );
+  }
+
+  private renderGuidance(container: HTMLElement, preview: SyncPreview): void {
+    const guidance = buildPreviewGuidance(preview);
+    if (guidance.length === 0) {
+      return;
+    }
+
+    const section = this.createSection(container, "What To Check");
+    this.appendBullets(section, guidance);
   }
 
   private renderOperations(container: HTMLElement, preview: SyncPreview): void {

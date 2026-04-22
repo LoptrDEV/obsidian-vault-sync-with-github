@@ -2,6 +2,7 @@ import { normalizePath, type App, TFile } from "obsidian";
 import type {
   ConflictRecord,
   LocalIndex,
+  LocalIndexScanMeta,
   RemoteIndex,
   SyncApprovalRequirement,
   SyncBaseline,
@@ -13,6 +14,7 @@ import type {
   SyncPlanSummary,
   SyncPreview,
   SyncProgress,
+  SyncSessionState,
 } from "../types/sync-types";
 import type {
   ConflictResolver,
@@ -33,8 +35,10 @@ const toArrayBuffer = (bytes: Uint8Array): ArrayBuffer => {
 };
 
 type PreparedSyncPlan = {
+  attempt: number;
   baseline: SyncBaseline | null;
   local: LocalIndex;
+  localScanMeta: LocalIndexScanMeta;
   remote: RemoteIndex;
   remotePlaceholderDirectories: string[];
   conflicts: SyncOp[];
@@ -45,6 +49,8 @@ type PreparedSyncPlan = {
 
 type ExecuteOpsResult = {
   pendingLocalBaselinePaths: string[];
+  localMutationsApplied: boolean;
+  remoteMutationsApplied: boolean;
 };
 
 /**
@@ -54,6 +60,7 @@ type ExecuteOpsResult = {
 export class DefaultSyncEngine implements SyncEngine {
   private static readonly MASS_DELETE_MIN_FILES = 10;
   private static readonly MASS_DELETE_RATIO_THRESHOLD = 0.5;
+  private static readonly MAX_SYNC_ATTEMPTS = 2;
 
   private readonly app: App;
   private readonly gitClient: GitHubClient;
@@ -85,79 +92,151 @@ export class DefaultSyncEngine implements SyncEngine {
     await this.log("info", "Sync started.");
     let prepared: PreparedSyncPlan | null = null;
     let healthPersisted = false;
+    let attempt = 1;
+    let replayDiagnostics: SyncDiagnosticEntry[] = [];
 
     try {
-      this.reportProgress(config, {
-        stage: "scanning",
-        message: "Loading baseline and scanning files...",
-      });
-
-      prepared = await this.prepareSyncPlan(config);
-      await this.stateStore.savePreview?.(prepared.preview);
-      await this.stateStore.saveConflicts(prepared.conflictRecords);
-
-      if (
-        prepared.preview.approval.required &&
-        config.approvalKey !== prepared.preview.approval.key
-      ) {
-        await this.log(
-          "warn",
-          `Sync blocked pending approval for ${prepared.preview.approval.pullDeleteCount} local deletions.`
-        );
-        await this.persistHealth(
-          this.buildHealthState(config, prepared.preview, "sync", "blocked", prepared.preview.approval.reason ?? "Sync blocked pending approval.")
-        );
-        healthPersisted = true;
-        throw new Error(
-          "Sync blocked: preview requires approval for a large set of local deletions. Review the preview and run the approval command if the change is intentional."
-        );
+      const recovered = await this.recoverInterruptedSyncIfNeeded(config);
+      if (recovered) {
+        replayDiagnostics = [
+          {
+            code: "interrupted_sync_recovered",
+            level: "warn",
+            message:
+              "Recovered from an interrupted sync by rebuilding the baseline from the current local and remote state.",
+          },
+        ];
       }
 
-      this.reportProgress(config, {
-        stage: "executing",
-        message: `Executing ${prepared.finalOps.length} operations...`,
-        total: prepared.finalOps.length,
-      });
+      while (attempt <= DefaultSyncEngine.MAX_SYNC_ATTEMPTS) {
+        this.reportProgress(config, {
+          stage: "scanning",
+          message:
+            attempt === 1
+              ? "Loading baseline and scanning files..."
+              : "Re-planning sync after a remote race...",
+        });
 
-      const executionResult = await this.executeOps(
-        prepared.finalOps,
-        prepared.conflicts,
-        config,
-        prepared.local,
-        prepared.remote
-      );
-      await this.cleanupLocalSyncArtifacts(config, prepared.remotePlaceholderDirectories);
+        prepared = await this.prepareSyncPlan(config, attempt, replayDiagnostics);
+        await this.savePreviewSafe(prepared.preview);
+        await this.stateStore.saveConflicts(prepared.conflictRecords);
 
-      this.reportProgress(config, {
-        stage: "saving",
-        message: "Saving sync state...",
-      });
+        if (
+          prepared.preview.approval.required &&
+          config.approvalKey !== prepared.preview.approval.key
+        ) {
+          await this.log(
+            "warn",
+            `Sync blocked pending approval for ${prepared.preview.approval.pullDeleteCount} local deletions.`
+          );
+          await this.persistHealth(
+            this.buildHealthState(
+              config,
+              prepared.preview,
+              "sync",
+              "blocked",
+              prepared.preview.approval.reason ?? "Sync blocked pending approval.",
+              {
+                lastAttemptCount: attempt,
+                blockedPathCount: prepared.localScanMeta.blockedPaths.length,
+                pendingSessionStage: null,
+              }
+            )
+          );
+          healthPersisted = true;
+          throw new Error(
+            "Sync blocked: preview requires approval for a large set of local deletions. Review the preview and run the approval command if the change is intentional."
+          );
+        }
 
-      const commitInfo = await this.gitClient.getCommitInfo(config.branch);
-      const updatedRemoteRaw = await this.remoteIndexer.fetchIndex(
-        config.owner,
-        config.repo,
-        config.branch,
-        null,
-        this.getRepoSubfolder(config)
-      );
-      const updatedRemote = this.filterRemoteIndex(updatedRemoteRaw, config);
-      const updatedLocal = await this.localIndexer.scan(config.rootPath, config.ignorePatterns);
-      const baselineSnapshot = this.buildBaseline(
-        updatedLocal,
-        updatedRemote,
-        commitInfo.sha,
-        this.remoteIndexer.getLastFetchMeta?.()?.placeholderDirectories ?? [],
-        executionResult.pendingLocalBaselinePaths
-      );
+        this.reportProgress(config, {
+          stage: "executing",
+          message: `Executing ${prepared.finalOps.length} operations...`,
+          total: prepared.finalOps.length,
+        });
 
-      await this.stateStore.saveBaseline(baselineSnapshot);
-      await this.stateStore.savePreview?.(null);
-      await this.persistHealth(
-        this.buildHealthState(config, prepared.preview, "sync", "success", "Sync completed.")
-      );
-      healthPersisted = true;
-      await this.log("info", "Sync completed.");
+        const session = this.createSession(config, prepared.finalOps.length, attempt);
+        await this.saveSessionSafe(session);
+
+        try {
+          const executionResult = await this.executeOps(
+            prepared.finalOps,
+            prepared.conflicts,
+            config,
+            session
+          );
+          await this.cleanupLocalSyncArtifacts(config, prepared.remotePlaceholderDirectories);
+
+          this.reportProgress(config, {
+            stage: "saving",
+            message: "Saving sync state...",
+          });
+
+          await this.saveSessionSafe({
+            ...session,
+            stage: "saving",
+            localMutationsApplied: executionResult.localMutationsApplied,
+            remoteMutationsApplied: executionResult.remoteMutationsApplied,
+            updatedAt: new Date().toISOString(),
+          });
+
+          const commitInfo = await this.gitClient.getCommitInfo(config.branch);
+          const updatedRemoteRaw = await this.remoteIndexer.fetchIndex(
+            config.owner,
+            config.repo,
+            config.branch,
+            null,
+            this.getRepoSubfolder(config)
+          );
+          const updatedRemote = this.filterRemoteIndex(updatedRemoteRaw, config);
+          const updatedLocal = await this.localIndexer.scan(config.rootPath, config.ignorePatterns);
+          const updatedLocalScanMeta = this.getLocalScanMeta();
+          const baselineSnapshot = this.buildBaseline(
+            updatedLocal,
+            updatedRemote,
+            commitInfo.sha,
+            this.remoteIndexer.getLastFetchMeta?.()?.placeholderDirectories ?? [],
+            executionResult.pendingLocalBaselinePaths,
+            updatedLocalScanMeta,
+            prepared.baseline
+          );
+
+          await this.stateStore.saveBaseline(baselineSnapshot);
+          await this.savePreviewSafe(null);
+          await this.saveSessionSafe(null);
+          await this.persistHealth(
+            this.buildHealthState(config, prepared.preview, "sync", "success", "Sync completed.", {
+              lastAttemptCount: attempt,
+              blockedPathCount: prepared.localScanMeta.blockedPaths.length,
+              interruptedRecovery: recovered,
+              pendingSessionStage: null,
+            })
+          );
+          healthPersisted = true;
+          await this.log("info", "Sync completed.");
+          return;
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          const retryable =
+            attempt < DefaultSyncEngine.MAX_SYNC_ATTEMPTS && this.isRetryableSyncError(error);
+
+          if (!retryable) {
+            throw error;
+          }
+
+          replayDiagnostics = [
+            {
+              code: "retry_replanned",
+              level: "warn",
+              message:
+                "The remote branch changed during sync. The plugin rebuilt the plan once and retried automatically.",
+            },
+          ];
+          await this.saveSessionSafe(null);
+          await this.log("warn", `Retrying sync after remote race: ${message}`);
+          attempt += 1;
+        }
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       if (!healthPersisted) {
@@ -167,7 +246,12 @@ export class DefaultSyncEngine implements SyncEngine {
             prepared?.preview ?? this.buildEmptyPreview(config),
             "sync",
             "failed",
-            message
+            message,
+            {
+              lastAttemptCount: attempt,
+              blockedPathCount: prepared?.localScanMeta.blockedPaths.length ?? 0,
+              pendingSessionStage: (await this.loadSessionSafe())?.stage ?? null,
+            }
           )
         );
       }
@@ -179,7 +263,7 @@ export class DefaultSyncEngine implements SyncEngine {
   async preview(config: SyncConfig): Promise<SyncPreview> {
     await this.log("info", "Sync preview started.");
     try {
-      const prepared = await this.prepareSyncPlan(config);
+      const prepared = await this.prepareSyncPlan(config, 1, []);
       const preview: SyncPreview = {
         ...prepared.preview,
         diagnostics: [
@@ -192,10 +276,14 @@ export class DefaultSyncEngine implements SyncEngine {
         ],
       };
 
-      await this.stateStore.savePreview?.(preview);
+      await this.savePreviewSafe(preview);
       await this.stateStore.saveConflicts(prepared.conflictRecords);
       await this.persistHealth(
-        this.buildHealthState(config, preview, "preview", "preview", "Sync preview generated.")
+        this.buildHealthState(config, preview, "preview", "preview", "Sync preview generated.", {
+          lastAttemptCount: 1,
+          blockedPathCount: prepared.localScanMeta.blockedPaths.length,
+          pendingSessionStage: null,
+        })
       );
       await this.log("info", "Sync preview generated.");
       return preview;
@@ -203,7 +291,11 @@ export class DefaultSyncEngine implements SyncEngine {
       const message = error instanceof Error ? error.message : String(error);
       const fallbackPreview = this.buildEmptyPreview(config);
       await this.persistHealth(
-        this.buildHealthState(config, fallbackPreview, "preview", "failed", message)
+        this.buildHealthState(config, fallbackPreview, "preview", "failed", message, {
+          lastAttemptCount: 1,
+          blockedPathCount: 0,
+          pendingSessionStage: null,
+        })
       );
       await this.log("error", `Sync preview failed: ${message}`);
       throw error;
@@ -236,10 +328,14 @@ export class DefaultSyncEngine implements SyncEngine {
         local,
         remote,
         commitInfo.sha,
-        this.remoteIndexer.getLastFetchMeta?.()?.placeholderDirectories ?? []
+        this.remoteIndexer.getLastFetchMeta?.()?.placeholderDirectories ?? [],
+        [],
+        this.getLocalScanMeta(),
+        existingBaseline
       );
       await this.stateStore.saveBaseline(snapshot);
-      await this.stateStore.savePreview?.(null);
+      await this.savePreviewSafe(null);
+      await this.saveSessionSafe(null);
 
       const diagnostics = [
         ...(this.remoteIndexer.getLastFetchMeta()?.diagnostics ?? []),
@@ -256,7 +352,12 @@ export class DefaultSyncEngine implements SyncEngine {
           preview,
           "repair-baseline",
           "repaired",
-          "Baseline repaired from current local and remote state."
+          "Baseline repaired from current local and remote state.",
+          {
+            lastAttemptCount: 1,
+            blockedPathCount: this.getLocalScanMeta().blockedPaths.length,
+            pendingSessionStage: null,
+          }
         )
       );
       await this.log("info", "Baseline repair completed.");
@@ -269,7 +370,12 @@ export class DefaultSyncEngine implements SyncEngine {
           this.buildEmptyPreview(config),
           "repair-baseline",
           "failed",
-          message
+          message,
+          {
+            lastAttemptCount: 1,
+            blockedPathCount: 0,
+            pendingSessionStage: null,
+          }
         )
       );
       await this.log("error", `Baseline repair failed: ${message}`);
@@ -277,7 +383,11 @@ export class DefaultSyncEngine implements SyncEngine {
     }
   }
 
-  private async prepareSyncPlan(config: SyncConfig): Promise<PreparedSyncPlan> {
+  private async prepareSyncPlan(
+    config: SyncConfig,
+    attempt: number,
+    replayDiagnostics: SyncDiagnosticEntry[]
+  ): Promise<PreparedSyncPlan> {
     const baseline = await this.stateStore.loadBaseline();
     this.localIndexer.setPreviousBaseline(baseline);
 
@@ -296,6 +406,7 @@ export class DefaultSyncEngine implements SyncEngine {
       ),
     ]);
     const remote = this.filterRemoteIndex(remoteRaw, config);
+    const localScanMeta = this.getLocalScanMeta();
 
     this.reportProgress(config, {
       stage: "planning",
@@ -304,19 +415,27 @@ export class DefaultSyncEngine implements SyncEngine {
 
     const { ops, conflicts } = this.planner.plan(local, remote, baseline);
     const { resolvedOps, conflictRecords } = this.resolver.resolve(conflicts, config.conflictPolicy);
-    const finalOps = [
+    const filteredPlan = this.filterBlockedPaths(
+      [
       ...ops.filter((op): op is Exclude<SyncOp, { type: "conflict" }> => op.type !== "conflict"),
       ...resolvedOps.filter((op): op is Exclude<SyncOp, { type: "conflict" }> => op.type !== "conflict"),
+      ],
+      conflictRecords,
+      conflicts,
+      localScanMeta
+    );
+    const diagnostics = [
+      ...(this.remoteIndexer.getLastFetchMeta?.()?.diagnostics ?? []),
+      ...replayDiagnostics,
+      ...filteredPlan.diagnostics,
     ];
-
-    const diagnostics = [...(this.remoteIndexer.getLastFetchMeta?.()?.diagnostics ?? [])];
     const preview = this.buildPreview(
       config,
       local,
       remote,
       baseline,
-      finalOps,
-      conflictRecords,
+      filteredPlan.finalOps,
+      filteredPlan.conflictRecords,
       diagnostics
     );
 
@@ -326,14 +445,16 @@ export class DefaultSyncEngine implements SyncEngine {
     );
 
     return {
+      attempt,
       baseline,
       local,
+      localScanMeta,
       remote,
       remotePlaceholderDirectories:
         this.remoteIndexer.getLastFetchMeta?.()?.placeholderDirectories ?? [],
-      conflicts,
-      conflictRecords,
-      finalOps,
+      conflicts: filteredPlan.conflicts,
+      conflictRecords: filteredPlan.conflictRecords,
+      finalOps: filteredPlan.finalOps,
       preview,
     };
   }
@@ -508,7 +629,13 @@ export class DefaultSyncEngine implements SyncEngine {
     preview: SyncPreview,
     action: SyncHealthState["lastAction"],
     result: SyncHealthState["lastResult"],
-    message: string
+    message: string,
+    extras: {
+      lastAttemptCount: number;
+      blockedPathCount: number;
+      interruptedRecovery?: boolean;
+      pendingSessionStage: SyncSessionState["stage"] | null;
+    }
   ): SyncHealthState {
     return {
       updatedAt: new Date().toISOString(),
@@ -527,6 +654,12 @@ export class DefaultSyncEngine implements SyncEngine {
       authStatus: config.authStatus ?? "unknown",
       diagnostics: preview.diagnostics,
       rateLimit: this.gitClient.getLastRateLimitSnapshot?.() ?? null,
+      lastAttemptCount: extras.lastAttemptCount,
+      blockedPathCount: extras.blockedPathCount,
+      pendingSessionStage: extras.pendingSessionStage,
+      ...(extras.interruptedRecovery !== undefined
+        ? { interruptedRecovery: extras.interruptedRecovery }
+        : {}),
     };
   }
 
@@ -534,12 +667,130 @@ export class DefaultSyncEngine implements SyncEngine {
     await this.stateStore.saveHealth?.(health);
   }
 
+  private getLocalScanMeta(): LocalIndexScanMeta {
+    return this.localIndexer.getLastScanMeta?.() ?? {
+      blockedPaths: [],
+      blockedReasons: {},
+    };
+  }
+
+  private async loadSessionSafe(): Promise<SyncSessionState | null> {
+    return this.stateStore.loadSession?.() ?? null;
+  }
+
+  private async saveSessionSafe(session: SyncSessionState | null): Promise<void> {
+    await this.stateStore.saveSession?.(session);
+  }
+
+  private async savePreviewSafe(preview: SyncPreview | null): Promise<void> {
+    await this.stateStore.savePreview?.(preview);
+  }
+
+  private async recoverInterruptedSyncIfNeeded(config: SyncConfig): Promise<boolean> {
+    const session = await this.loadSessionSafe();
+    if (
+      !session ||
+      session.owner !== config.owner ||
+      session.repo !== config.repo ||
+      session.branch !== config.branch
+    ) {
+      return false;
+    }
+
+    if (session.remoteMutationsApplied) {
+      await this.log(
+        "warn",
+        `Recovering interrupted sync session ${session.id} after remote mutations were already applied.`
+      );
+      await this.repairBaseline(config);
+      return true;
+    }
+
+    await this.log(
+      "warn",
+      `Discarding interrupted sync session ${session.id} before mutations were committed.`
+    );
+    await this.saveSessionSafe(null);
+    return false;
+  }
+
+  private createSession(
+    config: SyncConfig,
+    plannedOpCount: number,
+    attempt: number
+  ): SyncSessionState {
+    const now = new Date().toISOString();
+    return {
+      id: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+      startedAt: now,
+      updatedAt: now,
+      stage: "prepared",
+      owner: config.owner,
+      repo: config.repo,
+      branch: config.branch,
+      plannedOpCount,
+      attempt,
+      localMutationsApplied: false,
+      remoteMutationsApplied: false,
+    };
+  }
+
+  private filterBlockedPaths(
+    finalOps: Array<Exclude<SyncOp, { type: "conflict" }>>,
+    conflictRecords: ConflictRecord[],
+    conflicts: SyncOp[],
+    localScanMeta: LocalIndexScanMeta
+  ): {
+    finalOps: Array<Exclude<SyncOp, { type: "conflict" }>>;
+    conflictRecords: ConflictRecord[];
+    conflicts: SyncOp[];
+    diagnostics: SyncDiagnosticEntry[];
+  } {
+    if (localScanMeta.blockedPaths.length === 0) {
+      return {
+        finalOps,
+        conflictRecords,
+        conflicts,
+        diagnostics: [],
+      };
+    }
+
+    const blocked = new Set(localScanMeta.blockedPaths.map((path) => normalizePath(path)));
+    const touchesBlockedPath = (op: Exclude<SyncOp, { type: "conflict" }> | SyncOp): boolean => {
+      if ("path" in op) {
+        return blocked.has(normalizePath(op.path));
+      }
+      if ("from" in op && blocked.has(normalizePath(op.from))) {
+        return true;
+      }
+      return "to" in op && blocked.has(normalizePath(op.to));
+    };
+
+    const nextOps = finalOps.filter((op) => !touchesBlockedPath(op));
+    const nextConflictRecords = conflictRecords.filter(
+      (record) => !blocked.has(normalizePath(record.path))
+    );
+    const nextConflicts = conflicts.filter((op) => !touchesBlockedPath(op));
+
+    return {
+      finalOps: nextOps,
+      conflictRecords: nextConflictRecords,
+      conflicts: nextConflicts,
+      diagnostics: [
+        {
+          code: "local_scan_blocked",
+          level: "warn",
+          message: `Skipped ${localScanMeta.blockedPaths.length} blocked local path(s) during sync planning. Their sync operations were deferred until the files become scannable again.`,
+        },
+      ],
+    };
+  }
+
   private async executeOps(
     ops: Array<Exclude<SyncOp, { type: "conflict" }>>,
     conflicts: SyncOp[],
     config: SyncConfig,
-    _local: LocalIndex,
-    _remote: RemoteIndex
+    session: SyncSessionState
   ): Promise<ExecuteOpsResult> {
     const failures: string[] = [];
     const pendingLocalBaselinePaths = new Set<string>();
@@ -568,24 +819,6 @@ export class DefaultSyncEngine implements SyncEngine {
       (op) => op.type === "push_update" || op.type === "push_new"
     ) as Array<{ type: "push_update" | "push_new"; path: string }>;
 
-    for (const op of renameRemote) {
-      await this.runOp(`rename_local ${op.from} -> ${op.to}`, failures, () =>
-        this.renameLocalFile(op.from, op.to)
-      );
-    }
-
-    for (const op of pullDelete) {
-      await this.runOp(`pull_delete ${op.path}`, failures, () =>
-        this.deleteLocalFile(op.path)
-      );
-    }
-
-    for (const op of pullUpdates) {
-      await this.runOp(`${op.type} ${op.path}`, failures, () =>
-        this.pullRemoteFile(op.path, config)
-      );
-    }
-
     const batchDeletes = new Set<string>();
     const batchUpdates = new Set<string>();
     for (const op of pushDelete) {
@@ -603,12 +836,57 @@ export class DefaultSyncEngine implements SyncEngine {
       batchDeletes.delete(path);
     }
 
+    let remoteMutationsApplied = false;
     if (batchDeletes.size > 0 || batchUpdates.size > 0) {
+      await this.saveSessionSafe({
+        ...session,
+        stage: "executing_remote",
+        updatedAt: new Date().toISOString(),
+      });
       await this.runOp(
         `batch_push ${batchUpdates.size} updates, ${batchDeletes.size} deletes`,
         failures,
-        () => this.batchPush(batchUpdates, batchDeletes, config)
+        async () => {
+          await this.batchPush(batchUpdates, batchDeletes, config);
+          remoteMutationsApplied = true;
+          await this.saveSessionSafe({
+            ...session,
+            stage: "executing_remote",
+            updatedAt: new Date().toISOString(),
+            remoteMutationsApplied: true,
+          });
+        }
       );
+    }
+
+    let localMutationsApplied = false;
+    await this.saveSessionSafe({
+      ...session,
+      stage: "executing_local",
+      updatedAt: new Date().toISOString(),
+      remoteMutationsApplied,
+      localMutationsApplied,
+    });
+
+    for (const op of renameRemote) {
+      await this.runOp(`rename_local ${op.from} -> ${op.to}`, failures, async () => {
+        await this.renameLocalFile(op.from, op.to);
+        localMutationsApplied = true;
+      });
+    }
+
+    for (const op of pullDelete) {
+      await this.runOp(`pull_delete ${op.path}`, failures, async () => {
+        await this.deleteLocalFile(op.path);
+        localMutationsApplied = true;
+      });
+    }
+
+    for (const op of pullUpdates) {
+      await this.runOp(`${op.type} ${op.path}`, failures, async () => {
+        await this.pullRemoteFile(op.path, config);
+        localMutationsApplied = true;
+      });
     }
 
     if (config.conflictPolicy === "keepBoth") {
@@ -617,16 +895,21 @@ export class DefaultSyncEngine implements SyncEngine {
           for (const path of paths) {
             pendingLocalBaselinePaths.add(path);
           }
+          if (paths.length > 0) {
+            localMutationsApplied = true;
+          }
         })
       );
     }
 
     if (failures.length > 0) {
-      throw new Error(`Sync failed with ${failures.length} errors.`);
+      throw new Error(failures[0] ?? `Sync failed with ${failures.length} errors.`);
     }
 
     return {
       pendingLocalBaselinePaths: [...pendingLocalBaselinePaths].sort(),
+      localMutationsApplied,
+      remoteMutationsApplied,
     };
   }
 
@@ -965,7 +1248,9 @@ export class DefaultSyncEngine implements SyncEngine {
     remote: RemoteIndex,
     commitSha?: string,
     placeholderDirectories: string[] = [],
-    excludePaths: string[] = []
+    excludePaths: string[] = [],
+    localScanMeta?: LocalIndexScanMeta,
+    previousBaseline?: SyncBaseline | null
   ): SyncBaseline {
     const entries: SyncBaseline["entries"] = {};
     const excluded = new Set(excludePaths.map((path) => normalizePath(path)));
@@ -993,6 +1278,42 @@ export class DefaultSyncEngine implements SyncEngine {
           : {}),
       };
       entries[path] = entry;
+    }
+
+    for (const blockedPath of localScanMeta?.blockedPaths ?? []) {
+      const normalized = normalizePath(blockedPath);
+      if (excluded.has(normalized)) {
+        continue;
+      }
+
+      const previous = previousBaseline?.entries[normalized];
+      const remoteEntry = remote[normalized];
+      if (!previous && !remoteEntry) {
+        continue;
+      }
+
+      const blockedEntry = {
+        path: normalized,
+        ...(previous?.hash ? { hash: previous.hash } : {}),
+        ...(previous?.mtime !== undefined ? { mtime: previous.mtime } : {}),
+        ...(previous?.size !== undefined
+          ? { size: previous.size }
+          : remoteEntry?.size !== undefined
+            ? { size: remoteEntry.size }
+            : {}),
+        ...(remoteEntry?.sha ? { sha: remoteEntry.sha } : previous?.sha ? { sha: previous.sha } : {}),
+        ...(remoteEntry?.lastCommitTime !== undefined
+          ? { lastCommitTime: remoteEntry.lastCommitTime }
+          : previous?.lastCommitTime !== undefined
+            ? { lastCommitTime: previous.lastCommitTime }
+            : {}),
+      };
+      const blockedReason =
+        localScanMeta?.blockedReasons[normalized] ?? previous?.blockedReason;
+      entries[normalized] = {
+        ...blockedEntry,
+        ...(blockedReason ? { blockedReason } : {}),
+      };
     }
 
     return {
@@ -1150,6 +1471,20 @@ export class DefaultSyncEngine implements SyncEngine {
   private isNotFoundError(error: unknown): boolean {
     const message = error instanceof Error ? error.message : String(error);
     return message.includes("404");
+  }
+
+  private isRetryableSyncError(error: unknown): boolean {
+    const message = error instanceof Error ? error.message : String(error);
+    return [
+      "409",
+      "sha",
+      "non-fast-forward",
+      "not a fast forward",
+      "Reference update failed",
+      "does not match",
+      "branch was updated",
+      "stale",
+    ].some((pattern) => message.toLowerCase().includes(pattern.toLowerCase()));
   }
 
   private getRepoSubfolder(config: SyncConfig): string {

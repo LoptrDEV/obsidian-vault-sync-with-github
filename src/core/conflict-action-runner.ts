@@ -1,6 +1,13 @@
 import { normalizePath, TFile, type App } from "obsidian";
 import type { ConflictRecord, SyncConfig } from "../types/sync-types";
 import type { GitHubClient } from "../types/interfaces";
+import {
+  buildMergedConflictText,
+  decodeBase64Utf8,
+  decodeUtf8,
+  encodeUtf8,
+  isTextSyncPath,
+} from "../utils/sync-content";
 
 export type ConflictAction = "keepLocal" | "keepRemote" | "keepBoth";
 
@@ -58,11 +65,19 @@ export class ConflictActionRunner {
     }
     const conflictPath = this.nextConflictPath(record.path, "conflict-manual");
     if (record.reason === "modify-modify") {
+      if (isTextSyncPath(record.path)) {
+        await this.createMergedTextConflictCopy(record.path, conflictPath, config);
+        return;
+      }
       await this.pullRemoteCopy(record.path, conflictPath, config);
       return;
     }
 
     if (record.reason === "delete-modify-local") {
+      if (isTextSyncPath(record.path)) {
+        await this.createMergedTextConflictCopy(record.path, conflictPath, config);
+        return;
+      }
       await this.pullRemoteCopy(record.path, conflictPath, config);
       return;
     }
@@ -164,6 +179,27 @@ export class ConflictActionRunner {
     const data = await this.app.vault.readBinary(abstractFile);
     await this.ensureParentFolder(targetPath);
     await this.app.vault.createBinary(targetPath, data);
+  }
+
+  private async createMergedTextConflictCopy(
+    sourcePath: string,
+    targetPath: string,
+    config: SyncConfig
+  ): Promise<void> {
+    const normalized = normalizePath(sourcePath);
+    const localFile = this.app.vault.getAbstractFileByPath(normalized);
+    const localText =
+      localFile && localFile instanceof TFile
+        ? decodeUtf8(await this.app.vault.readBinary(localFile))
+        : "";
+    const remote = await this.client.getFile(this.toRemotePath(normalized, config), config.branch);
+    const mergedText = buildMergedConflictText(
+      normalized,
+      localText,
+      decodeBase64Utf8(remote.content)
+    );
+    await this.ensureParentFolder(targetPath);
+    await this.app.vault.createBinary(targetPath, toArrayBuffer(encodeUtf8(mergedText)));
   }
 
   private async ensureParentFolder(path: string): Promise<void> {

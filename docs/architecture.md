@@ -47,6 +47,9 @@ flowchart LR
 - suspicious local delete sets require an explicit approval key before sync execution continues
 - sync preview, conflicts, and health state are stored locally so the user can inspect the last plan after a blocked or failed run
 - a dedicated baseline-repair action rebuilds the stored baseline from current local and remote state without silently widening sync scope
+- sync execution persists a lightweight session record so interrupted remote-first runs can recover safely on the next launch
+- blocked local paths such as oversize files are deferred explicitly instead of being collapsed into ordinary delete semantics
+- text conflicts keep `keepBoth` usable by writing merged Markdown/plaintext artifacts with conflict markers instead of only opaque binary copies
 
 ## GitHub client behavior
 

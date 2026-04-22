@@ -10,16 +10,19 @@ import type {
   SyncBaseline,
   SyncConfig,
   SyncHealthState,
+  SyncSessionState,
   SyncLogEntry,
   SyncOp,
   SyncPreview,
 } from "./sync-types";
+import type { LocalIndexScanMeta } from "./sync-types";
 
 export interface LocalIndexer {
   scan(rootPath: string, ignorePatterns: string[]): Promise<LocalIndex>;
   computeHash(file: TFile): Promise<string>;
   setPreviousBaseline(baseline: SyncBaseline | null): void;
   setMaxFileSizeMB(maxSizeMB: number): void;
+  getLastScanMeta(): LocalIndexScanMeta;
 }
 
 export interface RemoteIndexer {
@@ -45,6 +48,8 @@ export interface StateStore {
   loadPreview(): Promise<SyncPreview | null>;
   saveHealth(health: SyncHealthState | null): Promise<void>;
   loadHealth(): Promise<SyncHealthState | null>;
+  saveSession(session: SyncSessionState | null): Promise<void>;
+  loadSession(): Promise<SyncSessionState | null>;
 }
 
 export interface SyncPlanner {

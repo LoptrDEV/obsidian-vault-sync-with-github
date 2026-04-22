@@ -34,8 +34,20 @@ The included CodeQL workflow is more useful when code scanning is visible in the
 
 Especially valuable for a repository that discusses GitHub tokens and Actions.
 
+### 7. Enable release immutability
+
+This repository now treats immutable releases as part of release hardening.
+
+Require at least:
+
+- repository-level release immutability enabled in GitHub settings
+- release assets fully attached while the release is still a draft
+- draft release published only after asset review and manual smoke checks complete
+
+Immutable releases strengthen supply-chain integrity by preventing later modification of published release assets and release tags, and GitHub also issues a release attestation for immutable releases.
+
 ## Optional but useful
 
 - Discussions for design proposals and usage questions
 - repository rulesets instead of legacy branch protection when available
-- artifact attestations and signed-release hardening in a later phase
+- organization-level rollout of immutable releases when more repositories adopt the same release policy

@@ -134,7 +134,7 @@ describe("GitHubApiClient", () => {
     const requestUrlMock = vi.mocked(requestUrl);
 
     requestUrlMock.mockRejectedValue({
-      message: "Request failed, status 409",
+      message: "Git Repository is empty",
       status: 409,
     });
 
@@ -150,12 +150,22 @@ describe("GitHubApiClient", () => {
     const requestUrlMock = vi.mocked(requestUrl);
 
     requestUrlMock.mockRejectedValue({
-      message: "Request failed, status 409",
+      message: "Git Repository is empty",
       status: 409,
     });
 
     const client = new GitHubApiClient("t", "o", "r");
     await expect(client.listTree("main")).rejects.toThrow("Git Repository is empty");
+  });
+
+  it("does not treat every 409 as an empty repository", async () => {
+    const { requestUrl } = await import("obsidian");
+    const requestUrlMock = vi.mocked(requestUrl);
+
+    requestUrlMock.mockResolvedValue(makeResponse({ status: 409, text: "branch protection conflict" }));
+
+    const client = new GitHubApiClient("t", "o", "r");
+    await expect(client.getCommitInfo("main")).rejects.toThrow("branch protection conflict");
   });
 
   it("treats a branch with an empty tree commit as an empty index", async () => {

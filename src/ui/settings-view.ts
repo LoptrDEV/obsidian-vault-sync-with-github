@@ -3,7 +3,29 @@ import { GitHubAuthManager } from "../auth/github-auth-manager";
 import { SHARED_GITHUB_APP } from "../config/shared-github-app";
 import type GitHubApiSyncPlugin from "../main";
 import type { GitHubAppAuthState, GitHubAppRepository } from "../types/auth-types";
+import { normalizeMaxFileSizeMB, normalizeSyncIntervalMinutes } from "../types/plugin-settings";
 import { GitHubAppAuthModal } from "./github-app-auth-modal";
+import { buildHealthSummary } from "./sync-status-copy";
+
+type RepositoryLoadResult = {
+  repositories: GitHubAppRepository[];
+  errorMessage: string | null;
+};
+
+export const describeRepositoryLoadIssue = (error: unknown): string => {
+  const message = error instanceof Error ? error.message : String(error);
+  const normalized = message.toLowerCase();
+
+  if (
+    normalized.includes("reconnected") ||
+    normalized.includes("authentication") ||
+    normalized.includes("reauth")
+  ) {
+    return "The stored GitHub App login is no longer usable. Reconnect the shared app and refresh the repository list.";
+  }
+
+  return "GitHub did not return the repository list. Refresh the list and try again.";
+};
 
 export class SettingsView extends PluginSettingTab {
   private plugin: GitHubApiSyncPlugin;
@@ -22,16 +44,28 @@ export class SettingsView extends PluginSettingTab {
     containerEl.empty();
     const authManager = new GitHubAuthManager(this.plugin);
     const authState = await authManager.loadGitHubAppAuthState();
-    const availableRepositories = authState
+    const repositoryLoadResult = authState
       ? await this.loadAvailableRepositories(authManager)
-      : [];
+      : { repositories: [], errorMessage: null };
+    const availableRepositories = repositoryLoadResult.repositories;
     const selectedRepository = await this.resolveSelectedRepository(
       authManager,
       availableRepositories
     );
     const storedPreview = await this.plugin.loadSyncPreview();
+    const storedHealth = await this.plugin.loadSyncHealth();
 
     new Setting(containerEl).setHeading().setName("GitHub API sync");
+
+    if (storedHealth) {
+      new Setting(containerEl)
+        .setName("Current sync status")
+        .setDesc(`${storedHealth.lastMessage} Updated ${new Date(storedHealth.updatedAt).toLocaleString()}.`);
+      const summary = containerEl.createEl("ul", { cls: "github-api-sync-preview-list" });
+      for (const line of buildHealthSummary(storedHealth)) {
+        summary.createEl("li", { text: line });
+      }
+    }
 
     new Setting(containerEl)
       .setName("Shared GitHub app")
@@ -75,11 +109,31 @@ export class SettingsView extends PluginSettingTab {
 
     this.renderActionButtons(containerEl, Boolean(storedPreview?.approval.required));
 
+    if (repositoryLoadResult.errorMessage) {
+      new Setting(containerEl)
+        .setName("Repository access")
+        .setDesc(repositoryLoadResult.errorMessage)
+        .addButton((button) =>
+          button.setButtonText("Refresh list").onClick(() => {
+            this.display();
+          })
+        )
+        .addButton((button) =>
+          button.setButtonText("Reconnect").onClick(() => {
+            new GitHubAppAuthModal(this.plugin, {
+              onConnected: () => this.display(),
+            }).open();
+          })
+        );
+    }
+
     if (authState && availableRepositories.length === 0) {
       new Setting(containerEl)
         .setName("Repository access")
         .setDesc(
-          "No repositories are visible through the shared GitHub app yet. Install the app on a repository or refresh the repository list."
+          repositoryLoadResult.errorMessage
+            ? "No repository list is currently available because the shared GitHub app lookup failed."
+            : "No repositories are visible through the shared GitHub app yet. Install the app on a repository or refresh the repository list."
         )
         .addButton((button) =>
           button.setButtonText("Refresh list").onClick(() => {
@@ -264,7 +318,7 @@ export class SettingsView extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName("Sync interval (minutes)")
-      .setDesc("Leave empty to disable scheduled sync.")
+      .setDesc("Leave empty to disable scheduled sync. When enabled, local edits also debounce into an earlier sync attempt instead of waiting only for the next timer tick.")
       .addText((text) =>
         text
           .setPlaceholder("15")
@@ -277,20 +331,49 @@ export class SettingsView extends PluginSettingTab {
             void (async () => {
               const trimmed = value.trim();
               this.plugin.settings.syncIntervalMinutes =
-                trimmed.length === 0 ? null : Number(trimmed);
+                trimmed.length === 0 ? null : normalizeSyncIntervalMinutes(Number(trimmed));
               await this.plugin.saveSettings();
             })();
           })
       );
+
+    new Setting(containerEl)
+      .setName("Maximum file size (mb)")
+      .setDesc("Files larger than this are deferred locally before sync planning. They remain blocked until the size limit or the file changes.")
+      .addText((text) =>
+        text
+          .setPlaceholder("50")
+          .setValue(String(this.plugin.settings.maxFileSizeMB))
+          .onChange((value) => {
+            void (async () => {
+              this.plugin.settings.maxFileSizeMB = normalizeMaxFileSizeMB(Number(value.trim()));
+              await this.plugin.saveSettings();
+            })();
+          })
+      );
+
+    if (storedPreview?.diagnostics.some((entry) => entry.code === "local_scan_blocked")) {
+      containerEl
+        .createDiv({ cls: "github-api-sync-inline-note" })
+        .setText(
+          "The last preview deferred one or more blocked local files. Increase the file-size limit or reduce the file size if those paths should participate in sync."
+        );
+    }
   }
 
   private async loadAvailableRepositories(
     authManager: GitHubAuthManager
-  ): Promise<GitHubAppRepository[]> {
+  ): Promise<RepositoryLoadResult> {
     try {
-      return await authManager.listAvailableRepositories();
-    } catch {
-      return [];
+      return {
+        repositories: await authManager.listAvailableRepositories(),
+        errorMessage: null,
+      };
+    } catch (error) {
+      return {
+        repositories: [],
+        errorMessage: describeRepositoryLoadIssue(error),
+      };
     }
   }
 

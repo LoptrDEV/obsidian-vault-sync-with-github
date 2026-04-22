@@ -40,6 +40,8 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      id-token: write
+      attestations: write
 
     steps:
       - name: Checkout
@@ -56,6 +58,14 @@ jobs:
           tag="${GITHUB_REF_NAME}"
           node scripts/check-version-sync.mjs --expect-version "$tag"
           node scripts/check-release-assets.mjs --expect-version "$tag"
+
+      - name: Generate build provenance attestation
+        uses: actions/attest@v4
+        with:
+          subject-path: |
+            dist/main.js
+            dist/manifest.json
+            dist/styles.css
 
       - name: Create draft release
         env:

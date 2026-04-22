@@ -173,7 +173,7 @@ export class DefaultSyncPlanner implements SyncPlanner {
       }
     }
 
-    return this.matchRenames(deleted, added);
+    return this.matchRenamesByUniqueKey(deleted, added, (entry) => entry.hash);
   }
 
   private detectRemoteRenames(
@@ -196,39 +196,57 @@ export class DefaultSyncPlanner implements SyncPlanner {
       }
     }
 
-    return this.matchRenames(deleted, added);
+    return this.matchRenamesByUniqueKey(deleted, added, (entry) => entry.sha);
   }
 
-  private matchRenames<T extends { path: string; hash?: string; sha?: string }>(
+  private matchRenamesByUniqueKey<T extends { path: string }>(
     deleted: Array<T>,
-    added: Array<T>
+    added: Array<T>,
+    getKey: (entry: T) => string | undefined
   ): Array<{ from: string; to: string }> {
     const renames: Array<{ from: string; to: string }> = [];
-    const usedAdded = new Set<string>();
+    const deletedByKey = this.groupPathsByKey(deleted, getKey);
+    const addedByKey = this.groupPathsByKey(added, getKey);
 
-    for (const del of deleted) {
-      const match = added.find((entry) => {
-        if (usedAdded.has(entry.path)) {
-          return false;
-        }
-
-        if (del.hash && entry.hash) {
-          return del.hash === entry.hash;
-        }
-
-        if (del.sha && entry.sha) {
-          return del.sha === entry.sha;
-        }
-
-        return false;
-      });
-
-      if (match) {
-        usedAdded.add(match.path);
-        renames.push({ from: del.path, to: match.path });
+    for (const [key, deletedPaths] of deletedByKey.entries()) {
+      const addedPaths = addedByKey.get(key);
+      if (!addedPaths || deletedPaths.length !== 1 || addedPaths.length !== 1) {
+        continue;
       }
+
+      const from = deletedPaths[0];
+      const to = addedPaths[0];
+      if (!from || !to) {
+        continue;
+      }
+
+      renames.push({ from, to });
     }
 
     return renames;
+  }
+
+  private groupPathsByKey<T extends { path: string }>(
+    entries: Array<T>,
+    getKey: (entry: T) => string | undefined
+  ): Map<string, string[]> {
+    const grouped = new Map<string, string[]>();
+
+    for (const entry of entries) {
+      const key = getKey(entry);
+      if (!key) {
+        continue;
+      }
+
+      const paths = grouped.get(key);
+      if (paths) {
+        paths.push(entry.path);
+        continue;
+      }
+
+      grouped.set(key, [entry.path]);
+    }
+
+    return grouped;
   }
 }

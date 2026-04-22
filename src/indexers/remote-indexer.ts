@@ -62,13 +62,23 @@ export class GitHubRemoteIndexer implements RemoteIndexer {
         return {};
       }
 
-      return this.fetchFullIndex(branch, repoSubfolder, [
+      const diagnostics: SyncDiagnosticEntry[] = [
         {
           code: "remote_compare_failed",
           level: "warn",
           message: "Incremental remote comparison failed. Falling back to a full remote tree fetch.",
         },
-      ], true);
+      ];
+      if (this.isHistoryRewriteError(error)) {
+        diagnostics.unshift({
+          code: "remote_history_rewritten",
+          level: "warn",
+          message:
+            "The stored baseline commit could no longer be compared cleanly against the remote branch. This can happen after a force-push, branch reset, or rewritten history.",
+        });
+      }
+
+      return this.fetchFullIndex(branch, repoSubfolder, diagnostics, true);
     }
   }
 
@@ -232,6 +242,18 @@ export class GitHubRemoteIndexer implements RemoteIndexer {
   private isEmptyRepoError(error: unknown): boolean {
     const message = error instanceof Error ? error.message : String(error);
     return message.includes("Git Repository is empty");
+  }
+
+  private isHistoryRewriteError(error: unknown): boolean {
+    const message = error instanceof Error ? error.message : String(error);
+    return [
+      "404",
+      "no common ancestor",
+      "not found",
+      "merge base",
+      "gone",
+      "force",
+    ].some((pattern) => message.toLowerCase().includes(pattern));
   }
 
   private filterToSubfolder(index: RemoteIndex, repoSubfolder?: string): RemoteIndex {

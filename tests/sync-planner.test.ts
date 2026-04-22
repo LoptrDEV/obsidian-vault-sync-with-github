@@ -187,4 +187,31 @@ describe("DefaultSyncPlanner", () => {
     ]);
     expect(result.conflicts).toEqual([]);
   });
+
+  it("does not guess a rename when multiple candidates share the same content", () => {
+    const result = planner.plan(
+      {
+        "new-a.md": localEntry("new-a.md", "same"),
+        "new-b.md": localEntry("new-b.md", "same"),
+      },
+      {
+        "old-a.md": remoteEntry("old-a.md", "remote-a"),
+        "old-b.md": remoteEntry("old-b.md", "remote-b"),
+      },
+      makeBaseline({
+        "old-a.md": { path: "old-a.md", hash: "same", sha: "remote-a" },
+        "old-b.md": { path: "old-b.md", hash: "same", sha: "remote-b" },
+      })
+    );
+
+    expect(result.ops).toEqual(
+      expect.arrayContaining([
+        { type: "push_new", path: "new-a.md" },
+        { type: "push_new", path: "new-b.md" },
+        { type: "push_delete", path: "old-a.md" },
+        { type: "push_delete", path: "old-b.md" },
+      ])
+    );
+    expect(result.conflicts).toEqual([]);
+  });
 });
