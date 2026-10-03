@@ -1,3 +1,4 @@
+# Automatic Dependabot version-update pull requests disabled at maintainer request on 2026-10-03.
 version: 2
 updates:
   - package-ecosystem: npm
@@ -5,7 +6,7 @@ updates:
     schedule:
       interval: weekly
       day: monday
-    open-pull-requests-limit: 5
+    open-pull-requests-limit: 0
     groups:
       npm-minor-and-patch:
         patterns:
@@ -18,7 +19,7 @@ updates:
     schedule:
       interval: weekly
       day: monday
-    open-pull-requests-limit: 5
+    open-pull-requests-limit: 0
     groups:
       github-actions-minor-and-patch:
         patterns:

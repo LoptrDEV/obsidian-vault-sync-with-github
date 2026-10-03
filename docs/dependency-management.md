@@ -79,6 +79,10 @@ If the resource affects auth, token handling, sync scope, release automation, or
 
 ## Automated updates
 
+As of 2026-10-03, the maintainer has requested deactivation of automatic update PRs. Every Dependabot ecosystem uses `open-pull-requests-limit: 0`, so version-update PR creation is disabled until explicitly reactivated. The schedules and grouping described below remain in the configuration for a reviewed reactivation. Dependencies can still be reviewed and updated manually with the local scripts. Security-update automation is controlled separately in GitHub repository settings; dependency alerts and secret protections are not disabled by this configuration.
+
+This administrative configuration change is verified by YAML validation, a zero PR limit in every update block, and a readback of the published configuration. It changes no plugin code, installed dependency, release payload, or sync behavior, so runtime, Obsidian-host, and release tests are outside its verification scope.
+
 Dependabot is configured to:
 
 - check npm dependencies weekly
